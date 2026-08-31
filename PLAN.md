@@ -139,3 +139,14 @@ schedule/
 - Часовой пояс Europe/Moscow; длинная неделя режется на части ≤3900 символов.
 - Запуск: `.venv/bin/python bot.py` (нужен `BOT_TOKEN` в `.env`).
 - Ctrl+C: SIGINT → aiogram корректно останавливает polling, процесс завершается.
+
+## Итерация 2 (2026-08-31): UX и инфраструктура
+
+- **Навигация ‹ ›**: под днём `[‹ Сегодня ›]` + дни/неделя + меню, под неделей
+  `[‹ Эта неделя ›]` + сегодня/меню; callback по абсолютной дате
+  (`daynav:YYYY-MM-DD`, `weeknav:YYYY-MM-DD`), защита от «message is not modified».
+- **Ошибки + логи**: `dp.errors` (юзеру сообщение, в лог трейсбек),
+  `RotatingFileHandler` → `bot.log` (1 МБ × 3).
+- **README.md**, **CI** (GitHub Actions: unittest на push/PR).
+- **systemd**: `schedule-bot.service` для VPS (инструкция в README); локальная
+  установка отменена по решению пользователя — бот будет развёрнут на VPS.

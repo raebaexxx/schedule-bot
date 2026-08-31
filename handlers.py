@@ -3,6 +3,7 @@
 from datetime import date, timedelta
 
 from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandStart
 from aiogram.types import (
     CallbackQuery,
@@ -19,7 +20,6 @@ from formatter import (
     now,
     split_message,
 )
-from schedule_data import DAY_NAMES_RU
 
 router = Router()
 
@@ -39,6 +39,32 @@ def main_menu_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
+def day_keyboard(d: date) -> InlineKeyboardMarkup:
+    iso = d.isoformat()
+    prev_iso = (d - timedelta(days=1)).isoformat()
+    next_iso = (d + timedelta(days=1)).isoformat()
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="‹", callback_data=f"daynav:{prev_iso}"),
+         InlineKeyboardButton(text="Сегодня", callback_data="today"),
+         InlineKeyboardButton(text="›", callback_data=f"daynav:{next_iso}")],
+        [InlineKeyboardButton(text="По дням недели", callback_data="days_menu"),
+         InlineKeyboardButton(text="Вся неделя", callback_data="week")],
+        [InlineKeyboardButton(text="Меню", callback_data="back_to_main")],
+    ])
+
+
+def week_keyboard(monday: date) -> InlineKeyboardMarkup:
+    prev_iso = (monday - timedelta(days=7)).isoformat()
+    next_iso = (monday + timedelta(days=7)).isoformat()
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="‹", callback_data=f"weeknav:{prev_iso}"),
+         InlineKeyboardButton(text="Эта неделя", callback_data="week"),
+         InlineKeyboardButton(text="›", callback_data=f"weeknav:{next_iso}")],
+        [InlineKeyboardButton(text="Сегодня", callback_data="today"),
+         InlineKeyboardButton(text="Меню", callback_data="back_to_main")],
+    ])
+
+
 def days_menu_keyboard() -> InlineKeyboardMarkup:
     short = {"monday": "Пн", "tuesday": "Вт", "wednesday": "Ср",
              "thursday": "Чт", "friday": "Пт"}
@@ -55,16 +81,27 @@ def days_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
+async def safe_edit(callback: CallbackQuery, text: str,
+                    keyboard: InlineKeyboardMarkup) -> None:
+    """edit_text без падения на «message is not modified»."""
+    try:
+        await callback.message.edit_text(text, reply_markup=keyboard)
+    except TelegramBadRequest as e:
+        if "message is not modified" not in str(e):
+            raise
+
+
 async def send_day(target: Message, d: date, title: str | None = None) -> None:
     text = format_day_by_date(d, title)
     for chunk in split_message(text):
-        await target.answer(chunk, reply_markup=main_menu_keyboard())
+        await target.answer(chunk, reply_markup=day_keyboard(d))
 
 
-async def send_week(target: Message) -> None:
-    text = format_week()
+async def send_week(target: Message, start: date | None = None) -> None:
+    start = start or monday_of(now().date())
+    text = format_week(start)
     for chunk in split_message(text):
-        await target.answer(chunk, reply_markup=main_menu_keyboard())
+        await target.answer(chunk, reply_markup=week_keyboard(start))
 
 
 @router.message(CommandStart())
@@ -81,7 +118,8 @@ async def cmd_help(message: Message) -> None:
         "/tomorrow — расписание на завтра\n"
         "/week — вся неделя\n"
         "/date DD.MM — расписание на дату (например /date 15.09)\n"
-        "/monday ... /friday — по дням недели",
+        "/monday ... /friday — по дням недели\n\n"
+        "Под сообщением дня: ‹ › — листать дни, под неделей — недели.",
         reply_markup=main_menu_keyboard(),
     )
 
@@ -133,30 +171,28 @@ async def cmd_day(message: Message) -> None:
 
 @router.callback_query(F.data == "today")
 async def cb_today(callback: CallbackQuery) -> None:
-    await callback.message.edit_text(
-        format_day_by_date(now().date()), reply_markup=main_menu_keyboard())
+    await safe_edit(callback, format_day_by_date(now().date()),
+                    day_keyboard(now().date()))
     await callback.answer()
 
 
 @router.callback_query(F.data == "tomorrow")
 async def cb_tomorrow(callback: CallbackQuery) -> None:
-    await callback.message.edit_text(
-        format_day_by_date(now().date() + timedelta(days=1)),
-        reply_markup=main_menu_keyboard())
+    d = now().date() + timedelta(days=1)
+    await safe_edit(callback, format_day_by_date(d), day_keyboard(d))
     await callback.answer()
 
 
 @router.callback_query(F.data == "week")
 async def cb_week(callback: CallbackQuery) -> None:
-    await callback.message.edit_text(
-        format_week(), reply_markup=main_menu_keyboard())
+    monday = monday_of(now().date())
+    await safe_edit(callback, format_week(monday), week_keyboard(monday))
     await callback.answer()
 
 
 @router.callback_query(F.data == "days_menu")
 async def cb_days_menu(callback: CallbackQuery) -> None:
-    await callback.message.edit_text(
-        "Выбери день недели:", reply_markup=days_menu_keyboard())
+    await safe_edit(callback, "Выбери день недели:", days_menu_keyboard())
     await callback.answer()
 
 
@@ -171,12 +207,33 @@ async def cb_day(callback: CallbackQuery) -> None:
         await callback.answer()
         return
     d = monday_of(now().date()) + timedelta(days=offset)
-    await callback.message.edit_text(
-        format_day_by_date(d), reply_markup=days_menu_keyboard())
+    await safe_edit(callback, format_day_by_date(d), day_keyboard(d))
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("daynav:"))
+async def cb_daynav(callback: CallbackQuery) -> None:
+    try:
+        d = date.fromisoformat(callback.data.split(":", 1)[1])
+    except ValueError:
+        await callback.answer()
+        return
+    await safe_edit(callback, format_day_by_date(d), day_keyboard(d))
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("weeknav:"))
+async def cb_weeknav(callback: CallbackQuery) -> None:
+    try:
+        monday = date.fromisoformat(callback.data.split(":", 1)[1])
+    except ValueError:
+        await callback.answer()
+        return
+    await safe_edit(callback, format_week(monday), week_keyboard(monday))
     await callback.answer()
 
 
 @router.callback_query(F.data == "back_to_main")
 async def cb_back(callback: CallbackQuery) -> None:
-    await callback.message.edit_text(MENU_TEXT, reply_markup=main_menu_keyboard())
+    await safe_edit(callback, MENU_TEXT, main_menu_keyboard())
     await callback.answer()

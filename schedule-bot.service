@@ -1,0 +1,19 @@
+[Unit]
+Description=Telegram-бот с расписанием БА-231
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Отредактируйте пути под вашего пользователя и расположение проекта
+User=deploy
+WorkingDirectory=/opt/schedule-bot
+ExecStart=/opt/schedule-bot/.venv/bin/python bot.py
+Restart=on-failure
+RestartSec=5
+
+# Токен берётся из .env в WorkingDirectory; альтернатива — EnvironmentFile:
+# EnvironmentFile=/opt/schedule-bot/.env
+
+[Install]
+WantedBy=multi-user.target
