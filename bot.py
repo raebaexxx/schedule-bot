@@ -11,6 +11,8 @@ from aiogram.types import CallbackQuery, ErrorEvent, Message
 
 from config import BOT_TOKEN
 from handlers import router
+from scheduler import Scheduler
+from storage import Storage
 
 LOG_FILE = Path(__file__).parent / "bot.log"
 
@@ -60,8 +62,13 @@ async def main() -> None:
     dp.include_router(router)
     dp.errors.register(on_error)
 
-    logging.getLogger("bot").info("Бот запущен")
-    await dp.start_polling(bot)
+    scheduler = Scheduler(bot, Storage())
+    scheduler.start()
+    try:
+        logging.getLogger("bot").info("Бот запущен")
+        await dp.start_polling(bot)
+    finally:
+        await scheduler.stop()
 
 
 if __name__ == "__main__":

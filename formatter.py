@@ -135,3 +135,25 @@ def split_message(text: str, limit: int = 3900) -> list[str]:
     if cur:
         chunks.append("\n".join(cur))
     return chunks
+
+
+def plural_pairs(n: int) -> str:
+    if n == 1:
+        return "1 пара"
+    if 2 <= n <= 4:
+        return f"{n} пары"
+    return f"{n} пар"
+
+
+def digest_text(d: date) -> str | None:
+    """Утренний дайджест: заголовок + расписание дня. None — пар нет."""
+    if d.weekday() == 6:
+        return None
+    day_key = WEEKDAY_KEYS[d.weekday()]
+    slots = active_lessons(day_key, d)
+    total = sum(len(s["lessons"]) for s in slots)
+    if total == 0:
+        return None
+    title = (f"Доброе утро! Сегодня {DAY_NAMES_RU[day_key]}, "
+             f"{d.strftime('%d.%m')} — {plural_pairs(total)}")
+    return format_day_by_date(d, title=title)
