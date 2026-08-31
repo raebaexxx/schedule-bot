@@ -83,14 +83,14 @@ PAIR_NUMBERS = {
     "15.50-17.25": 5,
 }
 
-TIME_RE = re.compile(r"^\d{2}\.\d{2}-\d{2}\.\d{2}$")
+TIME_RE = re.compile(r"^\d{1,2}\.\d{2}-\d{1,2}\.\d{2}$")
 DATE_TOKEN_RE = re.compile(r"^\d{2}\.\d{2}$")
 SURNAME_RE = re.compile(r"^[А-ЯЁ]{2,}(?:-[А-ЯЁ]{2,})?$")
 INITIALS_RE = re.compile(r"^[А-ЯЁ]\.[А-ЯЁ]\.?$")
-ROOM_RE = re.compile(r"^\d{3}(?:\\+\d{3})?$")
+ROOM_RE = re.compile(r"^\d{3}(?:[\\/]+\d{3})?$")
 KIND_COMBINED_RE = re.compile(r"^лек\.,$")
 KIND_SIMPLE_RE = re.compile(r"^(лек\.|пр\.|лаб\.|Проект)$")
-LINK_PART_RE = re.compile(r"^(https://my\.mts-|link\.ru/.+)$")
+LINK_PART_RE = re.compile(r"^(https://my\.mts-|link\.ru/.+|vk\d+)$")
 VIRT_ROOM_RE = re.compile(r"^вирт[.]?ауд[.]?(\d+)$")
 
 WARNINGS: list[str] = []
@@ -358,7 +358,12 @@ def _distribute_lessons(lessons: list[dict], rows: list[dict]) -> None:
 # ------------------------------------------------- разбор занятия
 
 def normalize_time(t: str) -> str:
-    return t.replace(".", ":")
+    out = t.replace(".", ":")
+    # ведущий ноль: "8:30-10:05" -> "08:30-10:05"
+    if out and out[0] != "0" and ":" in out:
+        hh, rest = out.split(":", 1)
+        out = f"{int(hh):02d}:{rest}"
+    return out
 
 
 def infer_year(month: int) -> int:
@@ -382,72 +387,135 @@ def parse_lesson(tokens: list[str]) -> dict | None:
     """
     if not tokens:
         return None
+    # виртуальная комната бывает напечатана НАД типом занятия (сэндвич
+    # сверху в Excel-ячейке): "вирт. ауд." / "вирт. ауд. 3", затем "лек. ..."
+    lead_room = None
+    lead = 0
+    while lead < len(tokens) and (
+            re.match(r"^(вирт[.]?|ауд[.]?)$", tokens[lead])
+            or re.match(r"^\d+$", tokens[lead])):
+        lead += 1
+    if lead and lead < len(tokens) and \
+            (KIND_COMBINED_RE.match(tokens[lead]) or KIND_SIMPLE_RE.match(tokens[lead])):
+        nums = [t for t in tokens[:lead] if re.match(r"^\d+$", t)]
+        # номер виртуальной аудитории — в вирт-парах, последнее число — мусор
+        virt_nums = [t for t in tokens[:lead]
+                     if re.match(r"^\d+$", t)
+                     and lead > 1 and tokens[lead - 2] in ("вирт.", "вирт", "ауд.")]
+        lead_room = f"вирт. ауд. {virt_nums[-1]}" if virt_nums else "вирт. ауд." \
+            if any(re.match(r"^вирт", t) for t in tokens[:lead]) else None
+
     kind = ""
-    idx = 0
-    if KIND_COMBINED_RE.match(tokens[0]):
-        if len(tokens) > 1 and tokens[1] == "пр.":
+    idx = lead
+    if KIND_COMBINED_RE.match(tokens[lead]):
+        if len(tokens) > lead + 1 and tokens[lead + 1] == "пр.":
             kind = "лек., пр."
-            idx = 2
+            idx = lead + 2
         else:
-            warn(f"'лек.,' без 'пр.': {' '.join(tokens[:6])}")
+            warn(f"'лек.,' без 'пр.': {' '.join(tokens[lead:lead + 6])}")
             kind = "лек."
-            idx = 1
-    elif KIND_SIMPLE_RE.match(tokens[0]):
-        kind = tokens[0]
-        idx = 1
+            idx = lead + 1
+    elif KIND_SIMPLE_RE.match(tokens[lead]):
+        kind = tokens[lead]
+        idx = lead + 1
     else:
-        warn(f"занятие без типа в начале: {' '.join(tokens[:8])}")
+        warn(f"занятие без типа в начале: {' '.join(tokens[lead:lead + 8])}")
 
     n = len(tokens)
     used = [False] * n
     for i in range(idx):
         used[i] = True
 
-    # проход 1: преподаватель (ФАМИЛИЯ + И.О., могут быть на разных строках)
-    teacher = None
-    for j in range(idx, n - 1):
-        if not used[j] and not used[j + 1] \
-                and SURNAME_RE.match(tokens[j]) and INITIALS_RE.match(tokens[j + 1]):
-            teacher = f"{tokens[j]} {tokens[j + 1]}"
-            used[j] = used[j + 1] = True
-            break
+    # проход 1: виртуальная аудитория (приоритет — её токены мешают
+    # учителю: "АФАНАСЬЕВА вирт. ауд. 3 эксперимента ... О.В.")
+    room = lead_room
 
-    # проход 2: аудитория
-    room = None
+    def _try_virtual(start: int) -> tuple[str, list[int]] | None:
+        for j in range(start, n):
+            if used[j]:
+                continue
+            m = VIRT_ROOM_RE.match(tokens[j])
+            if m:
+                return f"вирт. ауд. {m.group(1)}", [j]
+            if re.match(r"^вирт[.]?$", tokens[j]) and j + 1 < n \
+                    and re.match(r"^ауд[.]?$", tokens[j + 1]):
+                num = ""
+                if j + 2 < n and re.match(r"^\d+$", tokens[j + 2]):
+                    num = tokens[j + 2]
+                span = [j, j + 1] + ([j + 2] if num else [])
+                return f"вирт. ауд. {num}".strip(), span
+        return None
+
+    virt = _try_virtual(idx)
+    if virt:
+        room, vspan = virt
+        for u in vspan:
+            used[u] = True
+        # мусорные чистые числа непосредственно перед виртуальной аудиторией
+        j = vspan[0] - 1
+        while j >= idx and not used[j] and re.match(r"^\d+$", tokens[j]):
+            used[j] = True
+            j -= 1
+
+    # проход 2: преподаватель. ФИО могут стоять в любом порядке и через
+    # 1-3 слова предмета (переносы строк в Excel-ячейке):
+    #   "КУПРИЯНОВА ... инженерная графика Л.С." или "В.Ю. НИКИФОРОВ"
+    teacher = None
+    teacher_span: list[int] = []
     for j in range(idx, n):
         if used[j]:
             continue
-        if ROOM_RE.match(tokens[j]):
-            room = tokens[j]
-            used[j] = True
-            break
-        m = VIRT_ROOM_RE.match(tokens[j])
-        if m:
-            room = f"вирт. ауд. {m.group(1)}"
-            used[j] = True
-            break
-        if re.match(r"^вирт[.]?$", tokens[j]) and j + 1 < n \
-                and re.match(r"^ауд[.]?$", tokens[j + 1]):
-            num = tokens[j + 2] if j + 2 < n else ""
-            room = f"вирт. ауд. {num}"
-            for k in range(j, min(j + 3, n)):
-                used[k] = True
+        t = tokens[j]
+        if SURNAME_RE.match(t):
+            for k in range(j + 1, min(j + 9, n)):
+                if used[k]:
+                    continue
+                if SURNAME_RE.match(tokens[k]):
+                    break
+                if INITIALS_RE.match(tokens[k]):
+                    teacher = f"{t} {tokens[k]}"
+                    teacher_span = [j, k]
+                    break
+        elif INITIALS_RE.match(t):
+            for k in range(j + 1, min(j + 9, n)):
+                if used[k]:
+                    continue
+                if INITIALS_RE.match(tokens[k]):
+                    break
+                if SURNAME_RE.match(tokens[k]):
+                    teacher = f"{tokens[k]} {t}"
+                    teacher_span = [j, k]
+                    break
+        if teacher is not None:
+            for u in teacher_span:
+                used[u] = True
             break
 
-    # проход 3: ссылка на онлайн-занятие
+    # проход 3: числовая аудитория (если не виртуальная)
+    if room is None:
+        for j in range(idx, n):
+            if used[j]:
+                continue
+            if ROOM_RE.match(tokens[j]):
+                room = tokens[j]
+                used[j] = True
+                break
+
+    # проход 4: ссылка на онлайн-занятие (части URL могут быть разнесены
+    # по ячейке: "https://my.mts-" ... "link.ru/j/.../vk3")
     link = None
+    link_parts: list[str] = []
     for j in range(idx, n):
         if used[j]:
             continue
         if LINK_PART_RE.match(tokens[j]):
-            parts = []
-            k = j
-            while k < n and not used[k] and LINK_PART_RE.match(tokens[k]):
-                parts.append(tokens[k])
-                used[k] = True
-                k += 1
-            link = "".join(parts)
-            break
+            link_parts.append(tokens[j])
+            used[j] = True
+    if link_parts:
+        # склеиваем в порядке: домен + путь
+        link = "".join(link_parts)
+        if not link.startswith("http"):
+            link = "https://" + link
 
     # проход 4: даты
     ranges: list[list[str]] = []
@@ -506,7 +574,7 @@ def parse_lesson(tokens: list[str]) -> dict | None:
 
     # проход 5: предмет = всё оставшееся
     subject = " ".join(t for j, t in enumerate(tokens) if not used[j]).strip()
-    if ranges or exact:
+    if ranges or exact or link:
         subject = re.sub(r"\s+с$", "", subject)  # висячий предлог из-за переноса
     subject = re.sub(r"\s+", " ", subject).strip()
 
@@ -527,7 +595,10 @@ def parse_lesson(tokens: list[str]) -> dict | None:
         "room": room,
         "ranges": ranges,
         "exact_dates": exact,
+        "_consumed": [i for i, u in enumerate(used) if u],
     }
+    if teacher is not None and teacher_span:
+        lesson["_teacher_span"] = teacher_span  # индексы consumed-токенов
     if link:
         lesson["link"] = link
     return lesson

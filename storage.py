@@ -79,3 +79,40 @@ class Storage:
 
     def enabled_users(self) -> dict[str, dict]:
         return {cid: u for cid, u in self._load().items() if u.get("enabled")}
+
+
+class SelectionStorage:
+    """Выбор группы пользователями (data/users_all.json)."""
+
+    def __init__(self, path: Path | None = None) -> None:
+        self.path = path or (DATA_DIR / "users_all.json")
+
+    def _load(self) -> dict:
+        if not self.path.exists():
+            return {}
+        try:
+            return json.loads(self.path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return {}
+
+    def _save(self, data: dict) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=str(self.path.parent), suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            os.replace(tmp, self.path)
+        except OSError:
+            if os.path.exists(tmp):
+                os.unlink(tmp)
+            raise
+
+    def get(self, chat_id: int | str) -> dict:
+        return self._load().get(str(chat_id), {})
+
+    def set_group(self, chat_id: int | str, course: str, gid: str) -> None:
+        data = self._load()
+        user = data.get(str(chat_id), {})
+        user["course"], user["group"] = course, gid
+        data[str(chat_id)] = user
+        self._save(data)

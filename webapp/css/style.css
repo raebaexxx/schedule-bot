@@ -512,3 +512,35 @@ button { font-family: inherit; }
   .sk { animation: none; }
   * { transition: none !important; }
 }
+
+/* ============ пикер группы ============ */
+
+.picker { padding: 20px 18px; }
+
+.picker__title {
+  font-size: 17px;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+
+.course-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.group-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.group-chip {
+  text-align: center;
+  padding: 12px;
+  font-size: 15px;
+  font-weight: 700;
+  border-radius: 14px;
+}
+
+.chip#groupChip { cursor: pointer; }

@@ -76,13 +76,54 @@
   /* ---------- состояние ---------- */
 
   var state = {
-    data: null,
-    view: "day",          // day | week | date
-    selected: mskTodayISO()
+    data: null,           // {courses: ...} либо одиночное расписание (legacy)
+    view: "day",          // day | week | date | picker
+    selected: mskTodayISO(),
+    course: null,
+    group: null
   };
+
+  try {
+    var saved = JSON.parse(localStorage.getItem("group") || "null");
+    if (saved && saved.course && saved.group) {
+      state.course = saved.course;
+      state.group = saved.group;
+    }
+  } catch (e) { /* noop */ }
 
   var content = document.getElementById("content");
   var footer = document.getElementById("footer");
+
+  function currentGroup() {
+    if (!state.data) return null;
+    if (state.data.courses) {
+      if (!state.course || !state.group ||
+          !state.data.courses[state.course] ||
+          !state.data.courses[state.course].groups[state.group]) {
+        return null;
+      }
+      var c = state.data.courses[state.course];
+      return {
+        course: state.course,
+        id: state.group,
+        display: c.groups[state.group].display || state.group,
+        semester: c.semester,
+        days: c.groups[state.group].days
+      };
+    }
+    /* legacy: одиночное расписание */
+    return {
+      course: null, id: null, display: "БА-231",
+      semester: state.data.semester, days: state.data.schedule
+    };
+  }
+
+  function saveGroup() {
+    if (state.course && state.group) {
+      localStorage.setItem("group",
+        JSON.stringify({course: state.course, group: state.group}));
+    }
+  }
 
   function pluralPairs(n) {
     if (n === 1) return "1 пара";
@@ -93,9 +134,10 @@
   /* ---------- данные ---------- */
 
   function lessonsForDate(iso) {
+    var g = currentGroup();
     var wd = weekdayOfISO(iso);
     var dayKey = DAY_KEYS[wd];
-    var day = state.data.schedule[dayKey];
+    var day = g.days[dayKey] || g.days[dayKey];
     if (!day) return [];
     return day.slots.map(function (slot) {
       var lessons = slot.lessons.filter(function (l) { return isActive(l, iso); });
@@ -374,6 +416,10 @@
   /* ---------- вкладки ---------- */
 
   function render() {
+    if (!currentGroup()) {
+      renderPicker();
+      return;
+    }
     if (state.view === "week") {
       renderWeek(state.selected);
     } else if (state.view === "date") {
@@ -382,6 +428,56 @@
       renderDay(state.selected);
     }
     updateBackButton();
+    updateHeader();
+  }
+
+  /* ---------- пикер курса и группы ---------- */
+
+  function renderPicker() {
+    content.innerHTML = "";
+    var card = glassCard("picker");
+    card.appendChild(el("div", "picker__title", "Выбери курс"));
+
+    var courseRow = el("div", "course-row");
+    Object.keys(state.data.courses).sort().forEach(function (course) {
+      var btn = el("button", "date-chip" + (state.course === course ? " is-active" : ""));
+      btn.appendChild(el("div", "dw", course + " курс"));
+      btn.appendChild(el("div", "dm", course_title_short(course)));
+      btn.addEventListener("click", function () {
+        haptic("light");
+        state.course = course;
+        card.innerHTML = "";
+        card.appendChild(el("i", "glass-stroke"));
+        card.appendChild(el("div", "picker__title", "Выбери группу"));
+        var gRow = el("div", "group-list");
+        Object.keys(state.data.courses[course].groups).forEach(function (gid) {
+          var gBtn = el("button", "date-chip group-chip",
+                        state.data.courses[course].groups[gid].display);
+          gBtn.addEventListener("click", function () {
+            haptic("light");
+            state.group = gid;
+            saveGroup();
+            state.view = "day";
+            updateHeader();
+            render();
+          });
+          gRow.appendChild(gBtn);
+        });
+        card.appendChild(gRow);
+        var back = el("button", "banner", "← другой курс");
+        back.style.marginTop = "10px";
+        back.addEventListener("click", function () { renderPicker(); });
+        card.appendChild(back);
+      });
+      courseRow.appendChild(btn);
+    });
+    card.appendChild(courseRow);
+    content.appendChild(card);
+  }
+
+  function course_title_short(course) {
+    var c = state.data.courses[course];
+    return c.semester ? c.semester.split("семестр")[0].trim() + " сем." : "";
   }
 
   document.querySelectorAll(".tab").forEach(function (btn) {
@@ -435,7 +531,8 @@
   }
 
   function load() {
-    var urls = ["data/schedule.json", "../data/schedule.json"];
+    var urls = ["../data/schedule_all.json", "data/schedule_all.json",
+                "../data/schedule.json", "data/schedule.json"];
     var attempt = 0;
 
     function tryNext() {
@@ -448,17 +545,30 @@
         })
         .then(function (json) {
           state.data = json;
-          var sub = document.getElementById("headerSub");
-          if (sub) sub.textContent = json.semester || "7 семестр · 2026/2027";
-          if (footer) {
-            footer.textContent = "источник: PDF расписания · обновляется парсером" +
-              (json.semester_end ? " · семестр до " + json.semester_end.split("-").reverse().join(".") : "");
+          if (state.data.courses && !currentGroup()) {
+            state.view = "picker";
           }
+          updateHeader();
           render();
         })
         .catch(tryNext);
     }
     tryNext();
+  }
+
+  function updateHeader() {
+    var g = currentGroup();
+    var sub = document.getElementById("headerSub");
+    if (g) {
+      if (sub) sub.textContent = g.semester || "";
+      var chip = document.getElementById("groupChip");
+      if (chip) chip.textContent = g.display;
+    } else if (sub) {
+      sub.textContent = "Выберите группу";
+    }
+    if (footer) {
+      footer.textContent = "источник: PDF расписания · обновляется парсером";
+    }
   }
 
   load();

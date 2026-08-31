@@ -17,6 +17,9 @@ def now() -> datetime:
     return datetime.now(TZ)
 
 
+now_iso = now  # алиас для общего бота
+
+
 def lesson_is_active(lesson: dict, d: date) -> bool:
     for r_from, r_to in lesson.get("ranges", []):
         if date.fromisoformat(r_from) <= d <= date.fromisoformat(r_to):
@@ -92,6 +95,10 @@ def format_day_by_date(d: date, title: str | None = None) -> str:
 
 def monday_of(d: date) -> date:
     return d - timedelta(days=d.weekday())
+
+
+def monday_of_iso(d: date) -> date:
+    return monday_of(d)
 
 
 def format_week(start: date | None = None) -> str:
