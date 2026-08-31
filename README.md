@@ -5,6 +5,9 @@ Telegram-бот с расписанием.
 Возможности:
 
 - расписание на сегодня / завтра / произвольную дату / неделю;
+- **Mini App (веб-приложение) в стиле iOS Liquid Glass**: `/webapp` или кнопка
+  меню — живой интерфейс с подсветкой текущей пары и таймерами
+  («идёт · до конца 25 мин», «через 40 мин»);
 - **фильтрация по датам**: видны только пары, которые идут именно в этот день
   (диапазоны «с 07.09 по 09.11», отдельные даты «16.11», «30.11 и 07.12»);
 - **утренний дайджест**: сам присылает расписание на день в выбранное время
@@ -85,6 +88,24 @@ journalctl --user -u schedule-bot -f
 
 Чтобы сервис работал после выхода из системы: `sudo loginctl enable-linger $USER`.
 
+## Mini App (веб-приложение)
+
+Статика в `webapp/` (vanilla HTML/CSS/JS, без сборки): liquid glass на
+`backdrop-filter` + SVG-рефракция для Chromium (Telegram Android), frost-фоллбэк
+для iOS WebView. Данные — `data/schedule.json`, отдаются nginx'ом.
+
+Развёртывание (пример для домена `app.example.com`):
+
+1. DNS: A-запись `app` → IP сервера.
+2. `sudo apt install -y nginx certbot python3-certbot-nginx`; открыть 80/443.
+3. nginx-сайт: root → `/opt/schedule-bot/webapp`, `/data/` → алиас на
+   `/opt/schedule-bot/data/` (Cache-Control: no-store).
+4. `sudo certbot --nginx -d app.example.com`.
+5. В `.env` бота: `WEBAPP_URL=https://app.example.com`, restart — бот сам
+   выставит кнопку меню (`set_chat_menu_button`).
+6. (опционально) @BotFather → Bot Settings → Configure Mini App → включить
+   Main Mini App с тем же URL.
+
 ## Структура
 
 ```
@@ -98,5 +119,6 @@ data/schedule.json   данные расписания (артефакт пар�
 data/layout.txt,     выгрузки pdftotext (фикстуры для регрессионных тестов
 data/bbox.xml         и контрольная сверка парсера)
 scripts/parse_pdf.py парсер PDF -> schedule.json
+webapp/              Mini App: liquid glass интерфейс (HTML/CSS/JS)
 tests/               unittest
 ```

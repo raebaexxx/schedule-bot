@@ -163,3 +163,21 @@ schedule/
 - Дайджест: «Доброе утро! Сегодня Понедельник, 07.09 — 4 пары» + день.
   Воскресенье/вне семестра — None.
 - Тесты: 53 (хранилище, should_send, tick с fake-ботом, forbidden).
+
+## Итерация 4 (2026-08-31): Mini App «Liquid Glass»
+
+- **webapp/** — vanilla HTML/CSS/JS без сборки: index.html, css/style.css
+  (темы через `--tg-theme-*`, safe-area, скелетон), js/liquid.js (движок
+  стекла), js/app.js (состояние, рендер, табы Сегодня/Неделя/Дата,
+  «идёт · до конца N мин», «через N мин», чипы дат, BackButton, haptics).
+- **Liquid glass по исследованию (см. чат)**: frost-база
+  `backdrop-filter: blur+saturate(180%)` — во всех WebView; «жидкая»
+  рефракция краёв (canvas SDF-карта → feImage+feDisplacementMap в
+  backdrop-filter) — только Chromium (детект `navigator.userAgentData`,
+  т.к. `@supports` лжёт в Safari). Стекло ограничено хедером и табами.
+  `prefers-reduced-motion`, без `isolation` на glass-обёртке (иначе
+  backdrop-root ломает frost).
+- **Бот**: `WEBAPP_URL` в .env; web_app-кнопка в меню, `/webapp`,
+  `set_chat_menu_button` при старте; тесты (55).
+- **Деплой**: nginx (root → webapp/, /data/ → алиас data/ с no-store) +
+  certbot на app.raebae.fun; DNS A-запись добавляет пользователь.

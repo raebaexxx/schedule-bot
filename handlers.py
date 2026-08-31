@@ -13,6 +13,7 @@ from aiogram.types import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     Message,
+    WebAppInfo,
 )
 
 from formatter import (
@@ -24,6 +25,7 @@ from formatter import (
     split_message,
 )
 from storage import Storage
+from config import WEBAPP_URL
 
 router = Router()
 storage = Storage()
@@ -35,17 +37,22 @@ MENU_TEXT = (
     "<b>Расписание группы БА-231</b>\n"
     "7 семестр, 2026/2027\n\n"
     "Выбери, что посмотреть:\n"
-    "утренний дайджест и его время — <b>/settings</b>"
+    "утренний дайджест и его время — <b>/settings</b>" +
+    ("\nрасписание в приложении — <b>/webapp</b>" if WEBAPP_URL else "")
 )
 
 
 def main_menu_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
+    rows = [
         [InlineKeyboardButton(text="Сегодня", callback_data="today"),
          InlineKeyboardButton(text="Завтра", callback_data="tomorrow")],
         [InlineKeyboardButton(text="По дням недели", callback_data="days_menu"),
          InlineKeyboardButton(text="Вся неделя", callback_data="week")],
-    ])
+    ]
+    if WEBAPP_URL:
+        rows.append([InlineKeyboardButton(text=" Открыть приложение",
+                                          web_app=WebAppInfo(url=WEBAPP_URL))])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def day_keyboard(d: date) -> InlineKeyboardMarkup:
@@ -132,10 +139,24 @@ async def cmd_help(message: Message) -> None:
         "/week — вся неделя\n"
         "/date DD.MM — расписание на дату (например /date 15.09)\n"
         "/monday ... /friday — по дням недели\n"
-        "/settings — дайджест: вкл/выкл и время\n\n"
-        "Под сообщением дня: ‹ › — листать дни, под неделей — недели.",
+        "/settings — дайджест: вкл/выкл и время\n"
+        "/webapp — открыть приложение (liquid glass)" +
+        ("" if WEBAPP_URL else "\n\nПриложение ещё не настроено (WEBAPP_URL в .env)"),
         reply_markup=main_menu_keyboard(),
     )
+
+
+@router.message(Command("webapp"))
+async def cmd_webapp(message: Message) -> None:
+    if not WEBAPP_URL:
+        await message.answer("Mini App ещё не настроен: задай WEBAPP_URL в .env "
+                             "и перезапусти бота.")
+        return
+    await message.answer(
+        "Открываю приложение:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="Расписание", web_app=WebAppInfo(url=WEBAPP_URL))
+        ]]))
 
 
 @router.message(Command("today"))

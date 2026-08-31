@@ -7,9 +7,9 @@ from pathlib import Path
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.types import CallbackQuery, ErrorEvent, Message
+from aiogram.types import CallbackQuery, ErrorEvent, MenuButtonWebApp, Message, WebAppInfo
 
-from config import BOT_TOKEN
+from config import BOT_TOKEN, WEBAPP_URL
 from handlers import router
 from scheduler import Scheduler
 from storage import Storage
@@ -61,6 +61,16 @@ async def main() -> None:
     dp = Dispatcher()
     dp.include_router(router)
     dp.errors.register(on_error)
+
+    if WEBAPP_URL:
+        try:
+            await bot.set_chat_menu_button(
+                menu_button=MenuButtonWebApp(
+                    text="Расписание", web_app=WebAppInfo(url=WEBAPP_URL)))
+            logging.getLogger("bot").info("кнопка меню -> Mini App %s", WEBAPP_URL)
+        except Exception:  # noqa: BLE001 - не критично для работы бота
+            logging.getLogger("bot").warning(
+                "не удалось установить кнопку меню Mini App", exc_info=True)
 
     scheduler = Scheduler(bot, Storage())
     scheduler.start()

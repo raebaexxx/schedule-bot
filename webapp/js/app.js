@@ -1,0 +1,465 @@
+/*
+ * app.js — Mini App «Расписание БА-231».
+ * Данные: data/schedule.json (артефакт scripts/parse_pdf.py).
+ * Всё рендерится на клиенте; время расписания — Europe/Moscow.
+ */
+(function () {
+  "use strict";
+
+  /* ---------- Telegram / демо-режим ---------- */
+
+  var tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+
+  function applyTheme() {
+    var dark = tg
+      ? tg.colorScheme === "dark"
+      : window.matchMedia("(prefers-color-scheme: dark)").matches;
+    document.body.classList.toggle("dark", dark);
+  }
+
+  if (tg) {
+    tg.ready();
+    tg.expand();
+    if (tg.setHeaderColor) tg.setHeaderColor("bg_color");
+    applyTheme();
+    tg.onEvent("themeChanged", applyTheme);
+  } else {
+    applyTheme();
+    var banner = document.createElement("div");
+    banner.className = "banner";
+    banner.textContent = "Демо-режим в браузере — открой бота в Telegram для полного вида";
+    document.getElementById("app").prepend(banner);
+  }
+
+  function haptic(kind) {
+    if (tg && tg.HapticFeedback) {
+      try { tg.HapticFeedback.impactOccurred(kind || "light"); } catch (e) { /* noop */ }
+    }
+  }
+
+  /* ---------- время МСК ---------- */
+
+  var DAY_KEYS = ["sunday", "monday", "tuesday", "wednesday", "thursday",
+                  "friday", "saturday"];
+  var DW_SHORT = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"];
+
+  function mskTodayISO() {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Europe/Moscow",
+      year: "numeric", month: "2-digit", day: "2-digit"
+    }).format(new Date());
+  }
+
+  function mskISO(offsetDays) {
+    var d = new Date(Date.now() + (offsetDays || 0) * 86400000);
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Europe/Moscow",
+      year: "numeric", month: "2-digit", day: "2-digit"
+    }).format(d);
+  }
+
+  function weekdayOfISO(iso) {
+    return new Date(iso + "T12:00:00+03:00").getUTCDay(); // 0 = воскресенье
+  }
+
+  function fmtDateHuman(iso) {
+    var d = new Date(iso + "T12:00:00+03:00");
+    var months = ["января", "февраля", "марта", "апреля", "мая", "июня",
+                  "июля", "августа", "сентября", "октября", "ноября", "декабря"];
+    return d.getUTCDate() + " " + months[d.getUTCMonth()];
+  }
+
+  function slotDate(iso, hm) {
+    return new Date(iso + "T" + hm + ":00+03:00");
+  }
+
+  /* ---------- состояние ---------- */
+
+  var state = {
+    data: null,
+    view: "day",          // day | week | date
+    selected: mskTodayISO()
+  };
+
+  var content = document.getElementById("content");
+  var footer = document.getElementById("footer");
+
+  function pluralPairs(n) {
+    if (n === 1) return "1 пара";
+    if (n >= 2 && n <= 4) return n + " пары";
+    return n + " пар";
+  }
+
+  /* ---------- данные ---------- */
+
+  function lessonsForDate(iso) {
+    var wd = weekdayOfISO(iso);
+    var dayKey = DAY_KEYS[wd];
+    var day = state.data.schedule[dayKey];
+    if (!day) return [];
+    return day.slots.map(function (slot) {
+      var lessons = slot.lessons.filter(function (l) { return isActive(l, iso); });
+      return { time: slot.time, pair: slot.pair, lessons: lessons };
+    }).filter(function (slot) { return slot.lessons.length > 0; });
+  }
+
+  function isActive(lesson, iso) {
+    var ranges = lesson.ranges || [];
+    for (var i = 0; i < ranges.length; i++) {
+      if (iso >= ranges[i][0] && iso <= ranges[i][1]) return true;
+    }
+    return (lesson.exact_dates || []).indexOf(iso) !== -1;
+  }
+
+  function countLessons(slots) {
+    return slots.reduce(function (acc, s) { return acc + s.lessons.length; }, 0);
+  }
+
+  /* текущая и следующая пара (только если выбран сегодняшний день) */
+  function liveStatus(slots, iso) {
+    var now = Date.now();
+    var result = { live: null, next: null, minutesToNext: null, liveLeft: null };
+    for (var i = 0; i < slots.length; i++) {
+      var parts = slots[i].time.split("-");
+      var start = slotDate(iso, parts[0].replace(".", ":"));
+      var end = slotDate(iso, parts[1].replace(".", ":"));
+      if (now >= start && now < end) {
+        result.live = { slot: slots[i], left: Math.max(1, Math.round((end - now) / 60000)) };
+      } else if (now < start && !result.next) {
+        result.next = { slot: slots[i], inMin: Math.round((start - now) / 60000) };
+      }
+    }
+    return result;
+  }
+
+  function humanMinutes(total) {
+    if (total < 60) return total + " мин";
+    return Math.floor(total / 60) + " ч " + (total % 60) + " мин";
+  }
+
+  /* ---------- рендер ---------- */
+
+  function el(tag, cls, text) {
+    var node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  }
+
+  function glassCard(cls) {
+    var card = el("div", "glass glass--soft " + (cls || ""));
+    card.appendChild(el("i", "glass-stroke"));
+    return card;
+  }
+
+  function renderLessonCard(slot) {
+    var lesson = slot.lessons.length === 1 ? slot.lessons[0] : null;
+    var card = glassCard("lesson");
+
+    var timeCol = el("div", "lesson__time");
+    timeCol.appendChild(el("div", "pair-num", String(slot.pair || "?")));
+    timeCol.appendChild(el("time", null, slot.time));
+    card.appendChild(timeCol);
+
+    var body = el("div", "lesson__body");
+
+    if (lesson) {
+      body.appendChild(el("div", "lesson__subject", lesson.subject));
+      body.appendChild(el("span", "lesson__kind", lesson.kind));
+      var meta = el("div", "lesson__meta");
+      if (lesson.teacher) {
+        var t = el("span", null, lesson.teacher);
+        meta.appendChild(t);
+      }
+      var room = el("span", null);
+      room.appendChild(document.createTextNode("ауд. "));
+      var rb = el("b", null, lesson.room || "—");
+      room.appendChild(rb);
+      meta.appendChild(room);
+      body.appendChild(meta);
+      if (lesson.link) {
+        var a = el("a", "lesson__link", "Подключиться онлайн");
+        a.href = lesson.link;
+        a.target = "_blank";
+        a.rel = "noopener";
+        body.appendChild(a);
+      }
+    } else {
+      /* несколько пар в одном слоте — раскрываем списком */
+      slot.lessons.forEach(function (l) {
+        var line = el("div", "lesson__subject", l.subject);
+        body.appendChild(line);
+        var meta = el("div", "lesson__meta");
+        if (l.kind) meta.appendChild(el("span", null, l.kind));
+        if (l.teacher) meta.appendChild(el("span", null, l.teacher));
+        meta.appendChild(el("span", null, "ауд. " + (l.room || "—")));
+        body.appendChild(meta);
+        if (l.link) {
+          var a2 = el("a", "lesson__link", "Онлайн");
+          a2.href = l.link;
+          a2.target = "_blank";
+          a2.rel = "noopener";
+          body.appendChild(a2);
+        }
+        body.appendChild(el("div", null, "\u00a0"));
+      });
+    }
+
+    card.appendChild(body);
+    return card;
+  }
+
+  function renderDay(iso) {
+    content.innerHTML = "";
+    var slots = lessonsForDate(iso);
+    var isToday = iso === mskTodayISO();
+
+    var title = el("div", "section-title");
+    title.appendChild(el("span", null,
+      DW_SHORT[weekdayOfISO(iso)].toUpperCase() + ", " + fmtDateHuman(iso) +
+      (isToday ? " · сегодня" : "")));
+
+    var nav = el("div", "date-nav");
+    var prev = el("button", "nav-btn", "‹");
+    var next = el("button", "nav-btn", "›");
+    prev.addEventListener("click", function () { shiftDay(-1); });
+    next.addEventListener("click", function () { shiftDay(1); });
+    nav.appendChild(prev);
+    nav.appendChild(next);
+    title.appendChild(nav);
+    content.appendChild(title);
+
+    if (slots.length === 0) {
+      var empty = glassCard("empty-card");
+      empty.appendChild(el("div", "big", "Занятий нет"));
+      empty.appendChild(el("div", null,
+        weekdayOfISO(iso) === 0 ? "Воскресенье — отдыхаем" : "В этот день пар нет"));
+      content.appendChild(empty);
+      return;
+    }
+
+    var status = isToday ? liveStatus(slots, iso) : { live: null, next: null };
+
+    slots.forEach(function (slot) {
+      var card = renderLessonCard(slot);
+      if (status.live && status.live.slot === slot) {
+        card.classList.add("is-live");
+        var badge = el("span", "badge badge--live");
+        badge.appendChild(el("span", "dot"));
+        badge.appendChild(document.createTextNode(
+          "идёт · до конца " + status.live.left + " мин"));
+        card.querySelector(".lesson__body").appendChild(badge);
+      } else if (status.next && status.next.slot === slot) {
+        card.classList.add("is-next");
+        var nb = el("span", "badge badge--next",
+          "через " + humanMinutes(status.next.inMin));
+        card.querySelector(".lesson__body").appendChild(nb);
+      }
+      content.appendChild(card);
+    });
+  }
+
+  function renderWeek(mondayISO) {
+    content.innerHTML = "";
+    var wd = weekdayOfISO(mondayISO);
+    var mondayOffset = (wd === 0) ? -6 : 1 - wd;
+    var monday = mskShiftISO(mondayISO, mondayOffset);
+
+    var title = el("div", "section-title");
+    title.appendChild(el("span", null, "Неделя"));
+    var nav = el("div", "date-nav");
+    var prev = el("button", "nav-btn", "‹");
+    var next = el("button", "nav-btn", "›");
+    prev.addEventListener("click", function () { state.selected = mskShiftISO(monday, -7); render(); });
+    next.addEventListener("click", function () { state.selected = mskShiftISO(monday, 7); render(); });
+    nav.appendChild(prev);
+    nav.appendChild(next);
+    title.appendChild(nav);
+    content.appendChild(title);
+
+    for (var i = 0; i < 5; i++) {
+      var iso = mskShiftISO(monday, i);
+      var slots = lessonsForDate(iso);
+      var block = glassCard("day-block");
+      var h3 = el("h3");
+      h3.appendChild(el("span", null,
+        DW_SHORT[weekdayOfISO(iso)].toUpperCase() + " · " + fmtDateHuman(iso)));
+      h3.appendChild(el("span", "cnt",
+        slots.length ? pluralPairs(countLessons(slots)) : ""));
+      block.appendChild(h3);
+
+      var ul = el("ul");
+      if (!slots.length) {
+        ul.appendChild(el("li", "empty", "—"));
+      } else {
+        slots.forEach(function (slot) {
+          slot.lessons.forEach(function (l) {
+            var li = el("li");
+            li.appendChild(el("span", "t", slot.time.replace(".", ":")));
+            var s = el("span", "s", l.subject);
+            li.appendChild(s);
+          });
+        });
+      }
+      block.appendChild(ul);
+      block.style.cursor = "pointer";
+      (function (dateISO) {
+        block.addEventListener("click", function () {
+          haptic("light");
+          state.view = "day";
+          state.selected = dateISO;
+          render();
+        });
+      })(iso);
+      content.appendChild(block);
+    }
+  }
+
+  function renderDatePicker() {
+    content.innerHTML = "";
+
+    var title = el("div", "section-title");
+    title.appendChild(el("span", null, "Выбери день"));
+    content.appendChild(title);
+
+    var strip = el("div", "dates");
+    for (var i = -3; i <= 10; i++) {
+      var iso = mskISO(i);
+      var chip = el("button", "date-chip" + (iso === state.selected ? " is-active" : ""));
+      chip.appendChild(el("div", "dw", DW_SHORT[weekdayOfISO(iso)]));
+      chip.appendChild(el("div", "dm", iso.slice(8) + "." + iso.slice(5, 7)));
+      (function (dateISO) {
+        chip.addEventListener("click", function () {
+          haptic("light");
+          state.selected = dateISO;
+          render();
+          var active = strip.querySelector(".is-active");
+          if (active) active.scrollIntoView({ block: "nearest", inline: "center" });
+        });
+      })(iso);
+      strip.appendChild(chip);
+    }
+    content.appendChild(strip);
+
+    /* под лентой — выбранный день */
+    var slots = lessonsForDate(state.selected);
+    var subtitle = el("div", "section-title");
+    subtitle.appendChild(el("span", null,
+      DW_SHORT[weekdayOfISO(state.selected)].toUpperCase() + ", " +
+      fmtDateHuman(state.selected) +
+      (slots.length ? " — " + pluralPairs(countLessons(slots)) : "")));
+    content.appendChild(subtitle);
+
+    if (!slots.length) {
+      var empty = glassCard("empty-card");
+      empty.appendChild(el("div", "big", "Занятий нет"));
+      content.appendChild(empty);
+      return;
+    }
+    slots.forEach(function (slot) { content.appendChild(renderLessonCard(slot)); });
+  }
+
+  function shiftDay(delta) {
+    haptic("light");
+    state.selected = mskShiftISO(state.selected, delta);
+    render();
+  }
+
+  function mskShiftISO(iso, days) {
+    var d = new Date(iso + "T12:00:00+03:00");
+    d.setUTCDate(d.getUTCDate() + days);
+    return d.toISOString().slice(0, 10);
+  }
+
+  /* ---------- вкладки ---------- */
+
+  function render() {
+    if (state.view === "week") {
+      renderWeek(state.selected);
+    } else if (state.view === "date") {
+      renderDatePicker();
+    } else {
+      renderDay(state.selected);
+    }
+    updateBackButton();
+  }
+
+  document.querySelectorAll(".tab").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      if (btn.classList.contains("is-active")) return;
+      haptic("light");
+      document.querySelectorAll(".tab").forEach(function (b) {
+        b.classList.remove("is-active");
+      });
+      btn.classList.add("is-active");
+      state.view = btn.dataset.tab;
+      render();
+    });
+  });
+
+  function updateBackButton() {
+    if (!tg || !tg.BackButton) return;
+    var inToday = state.view === "day" && state.selected === mskTodayISO();
+    if (inToday) {
+      tg.BackButton.hide();
+    } else {
+      tg.BackButton.show();
+    }
+  }
+
+  if (tg && tg.BackButton) {
+    tg.BackButton.onClick(function () {
+      haptic("light");
+      state.view = "day";
+      state.selected = mskTodayISO();
+      document.querySelectorAll(".tab").forEach(function (b) {
+        b.classList.toggle("is-active", b.dataset.tab === "day");
+      });
+      render();
+    });
+  }
+
+  /* ---------- загрузка данных ---------- */
+
+  function showError() {
+    content.innerHTML = "";
+    var card = glassCard("empty-card");
+    card.appendChild(el("div", "big", "Не удалось загрузить расписание"));
+    var retry = el("button", "nav-btn", "↻");
+    retry.style.width = "auto";
+    retry.style.padding = "8px 18px";
+    retry.style.borderRadius = "999px";
+    retry.addEventListener("click", load);
+    card.appendChild(retry);
+    content.appendChild(card);
+  }
+
+  function load() {
+    var urls = ["data/schedule.json", "../data/schedule.json"];
+    var attempt = 0;
+
+    function tryNext() {
+      if (attempt >= urls.length) { showError(); return; }
+      var url = urls[attempt++];
+      fetch(url, { cache: "no-store" })
+        .then(function (r) {
+          if (!r.ok) throw new Error(r.status);
+          return r.json();
+        })
+        .then(function (json) {
+          state.data = json;
+          var sub = document.getElementById("headerSub");
+          if (sub) sub.textContent = json.semester || "7 семестр · 2026/2027";
+          if (footer) {
+            footer.textContent = "источник: PDF расписания · обновляется парсером" +
+              (json.semester_end ? " · семестр до " + json.semester_end.split("-").reverse().join(".") : "");
+          }
+          render();
+        })
+        .catch(tryNext);
+    }
+    tryNext();
+  }
+
+  load();
+})();

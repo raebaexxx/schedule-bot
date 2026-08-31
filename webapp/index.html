@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <title>Расписание · БА-231</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <!-- Живой градиентный фон: стеклу нужно «изображение» под собой -->
+  <div class="bg" aria-hidden="true">
+    <div class="blob b1"></div>
+    <div class="blob b2"></div>
+    <div class="blob b3"></div>
+  </div>
+
+  <main id="app">
+    <header class="glass liquid" id="header">
+      <i class="glass-stroke" aria-hidden="true"></i>
+      <div class="header__row">
+        <h1 class="header__title">Расписание</h1>
+        <span class="chip">БА-231</span>
+      </div>
+      <div class="header__sub" id="headerSub">7 семестр · 2026/2027</div>
+    </header>
+
+    <nav class="tabs glass liquid" id="tabs" role="tablist" aria-label="Вид расписания">
+      <i class="glass-stroke" aria-hidden="true"></i>
+      <button class="tab is-active" data-tab="day" role="tab">Сегодня</button>
+      <button class="tab" data-tab="week" role="tab">Неделя</button>
+      <button class="tab" data-tab="date" role="tab">Дата</button>
+    </nav>
+
+    <section id="content" aria-live="polite">
+      <div class="skeleton" aria-hidden="true">
+        <div class="sk sk-line w60"></div>
+        <div class="sk sk-card"></div>
+        <div class="sk sk-card"></div>
+        <div class="sk sk-card"></div>
+      </div>
+    </section>
+
+    <footer class="footer" id="footer"></footer>
+  </main>
+
+  <script src="js/liquid.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
