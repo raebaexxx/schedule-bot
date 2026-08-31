@@ -97,7 +97,11 @@ journalctl --user -u schedule-bot -f
 Развёртывание (пример для домена `app.example.com`):
 
 1. DNS: A-запись `app` → IP сервера.
-2. `sudo apt install -y nginx certbot python3-certbot-nginx`; открыть 80/443.
+2. `sudo apt install -y nginx certbot python3-certbot-nginx`; **порядок
+   важен**: если включаете ufw — сначала `ufw allow 22/tcp` (SSH!), затем
+   `ufw allow 80,443/tcp` и только потом `ufw enable`. Если на сервере уже
+   есть другие сервисы (например 3x-ui/xray) — проверьте их порты
+   (`ss -tlnp`) и откройте их до включения firewall.
 3. nginx-сайт: root → `/opt/schedule-bot/webapp`, `/data/` → алиас на
    `/opt/schedule-bot/data/` (Cache-Control: no-store).
 4. `sudo certbot --nginx -d app.example.com`.
