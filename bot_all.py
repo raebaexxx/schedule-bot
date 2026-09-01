@@ -49,6 +49,29 @@ async def main() -> None:
             logging.getLogger("bot_all").warning(
                 "не удалось установить кнопку меню Mini App", exc_info=True)
 
+    try:
+        from aiogram.types import BotCommand
+        await bot.set_my_commands([
+            BotCommand(command="start", description="Главное меню / выбор группы"),
+            BotCommand(command="today", description="Расписание на сегодня"),
+            BotCommand(command="tomorrow", description="Расписание на завтра"),
+            BotCommand(command="week", description="Вся неделя"),
+            BotCommand(command="date", description="На дату: /date DD.MM"),
+            BotCommand(command="monday", description="Понедельник"),
+            BotCommand(command="tuesday", description="Вторник"),
+            BotCommand(command="wednesday", description="Среда"),
+            BotCommand(command="thursday", description="Четверг"),
+            BotCommand(command="friday", description="Пятница"),
+            BotCommand(command="saturday", description="Суббота"),
+            BotCommand(command="groups", description="Сменить группу"),
+            BotCommand(command="webapp", description="Открыть приложение"),
+            BotCommand(command="help", description="Помощь"),
+        ])
+        logging.getLogger("bot_all").info("меню команд обновлено")
+    except Exception:  # noqa: BLE001
+        logging.getLogger("bot_all").warning(
+            "не удалось установить меню команд", exc_info=True)
+
     logging.getLogger("bot_all").info("Общий бот запущен")
     await dp.start_polling(bot)
 

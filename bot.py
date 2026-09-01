@@ -7,7 +7,7 @@ from pathlib import Path
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.types import CallbackQuery, ErrorEvent, MenuButtonWebApp, Message, WebAppInfo
+from aiogram.types import BotCommand, CallbackQuery, ErrorEvent, MenuButtonWebApp, Message, WebAppInfo
 
 from config import BOT_TOKEN, WEBAPP_URL
 from handlers import router
@@ -71,6 +71,27 @@ async def main() -> None:
         except Exception:  # noqa: BLE001 - не критично для работы бота
             logging.getLogger("bot").warning(
                 "не удалось установить кнопку меню Mini App", exc_info=True)
+
+    try:
+        await bot.set_my_commands([
+            BotCommand(command="start", description="Главное меню"),
+            BotCommand(command="today", description="Расписание на сегодня"),
+            BotCommand(command="tomorrow", description="Расписание на завтра"),
+            BotCommand(command="week", description="Вся неделя"),
+            BotCommand(command="date", description="На дату: /date DD.MM"),
+            BotCommand(command="monday", description="Понедельник"),
+            BotCommand(command="tuesday", description="Вторник"),
+            BotCommand(command="wednesday", description="Среда"),
+            BotCommand(command="thursday", description="Четверг"),
+            BotCommand(command="friday", description="Пятница"),
+            BotCommand(command="settings", description="Дайджест: вкл/выкл и время"),
+            BotCommand(command="webapp", description="Открыть приложение"),
+            BotCommand(command="help", description="Помощь"),
+        ])
+        logging.getLogger("bot").info("меню команд обновлено")
+    except Exception:  # noqa: BLE001
+        logging.getLogger("bot").warning(
+            "не удалось установить меню команд", exc_info=True)
 
     scheduler = Scheduler(bot, Storage())
     scheduler.start()
