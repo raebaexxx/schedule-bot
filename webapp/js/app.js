@@ -416,8 +416,11 @@
   /* ---------- вкладки ---------- */
 
   function render() {
-    if (!currentGroup()) {
+    var tabs = document.getElementById("tabs");
+    if (tabs) tabs.style.display = (state.view === "picker") ? "none" : "";
+    if (state.view === "picker" || !currentGroup()) {
       renderPicker();
+      updateBackButton();
       return;
     }
     if (state.view === "week") {
@@ -436,42 +439,76 @@
   function renderPicker() {
     content.innerHTML = "";
     var card = glassCard("picker");
-    card.appendChild(el("div", "picker__title", "Выбери курс"));
+    var pickingCourse = !state.course || !state.data.courses[state.course];
 
+    if (!pickingCourse) {
+      /* смена группы: сразу показываем группы текущего курса */
+      card.appendChild(el("div", "picker__title", "Смени группу"));
+      var gRow = el("div", "group-list");
+      var gids = Object.keys(state.data.courses[state.course].groups);
+      gids.forEach(function (gid) {
+        var gBtn = el("button", "date-chip group-chip"
+                      + (state.group === gid ? " is-active" : ""),
+                      state.data.courses[state.course].groups[gid].display);
+        gBtn.addEventListener("click", function () {
+          haptic("light");
+          state.group = gid;
+          saveGroup();
+          state.view = "day";
+          updateHeader();
+          render();
+        });
+        gRow.appendChild(gBtn);
+      });
+      card.appendChild(gRow);
+
+      var back = el("button", "banner", "← выбрать другой курс");
+      back.style.marginTop = "10px";
+      back.addEventListener("click", function () {
+        state.course = null;
+        state.group = null;
+        renderPicker();
+      });
+      card.appendChild(back);
+      content.appendChild(card);
+      return;
+    }
+
+    /* первоначальный выбор: курс → группа */
+    card.appendChild(el("div", "picker__title", "Выбери курс"));
     var courseRow = el("div", "course-row");
     Object.keys(state.data.courses).sort().forEach(function (course) {
-      var btn = el("button", "date-chip" + (state.course === course ? " is-active" : ""));
+      var btn = el("button", "date-chip");
       btn.appendChild(el("div", "dw", course + " курс"));
       btn.appendChild(el("div", "dm", course_title_short(course)));
       btn.addEventListener("click", function () {
         haptic("light");
         state.course = course;
-        card.innerHTML = "";
-        card.appendChild(el("i", "glass-stroke"));
-        card.appendChild(el("div", "picker__title", "Выбери группу"));
-        var gRow = el("div", "group-list");
-        Object.keys(state.data.courses[course].groups).forEach(function (gid) {
-          var gBtn = el("button", "date-chip group-chip",
-                        state.data.courses[course].groups[gid].display);
-          gBtn.addEventListener("click", function () {
-            haptic("light");
-            state.group = gid;
-            saveGroup();
-            state.view = "day";
-            updateHeader();
-            render();
-          });
-          gRow.appendChild(gBtn);
-        });
-        card.appendChild(gRow);
-        var back = el("button", "banner", "← другой курс");
-        back.style.marginTop = "10px";
-        back.addEventListener("click", function () { renderPicker(); });
-        card.appendChild(back);
+        state.group = null;
+        renderPicker();
       });
       courseRow.appendChild(btn);
     });
     card.appendChild(courseRow);
+
+    if (state.course) {
+      card.appendChild(el("div", "picker__title", "Выбери группу"));
+      var gList = el("div", "group-list");
+      Object.keys(state.data.courses[state.course].groups).forEach(function (gid) {
+        var gBtn = el("button", "date-chip group-chip",
+                      state.data.courses[state.course].groups[gid].display);
+        gBtn.addEventListener("click", function () {
+          haptic("light");
+          state.group = gid;
+          saveGroup();
+          state.view = "day";
+          updateHeader();
+          render();
+        });
+        gList.appendChild(gBtn);
+      });
+      card.appendChild(gList);
+    }
     content.appendChild(card);
   }
 
@@ -495,22 +532,39 @@
 
   function updateBackButton() {
     if (!tg || !tg.BackButton) return;
-    var inToday = state.view === "day" && state.selected === mskTodayISO();
-    if (inToday) {
+    var hide = (state.view === "day" && state.selected === mskTodayISO()) ||
+               (state.view === "picker" && !state.course);
+    if (hide) {
       tg.BackButton.hide();
     } else {
       tg.BackButton.show();
     }
   }
 
+  /* клик по чипу группы в шапке — открыть пикер */
+  var groupChip = document.getElementById("groupChip");
+  if (groupChip) {
+    groupChip.style.cursor = "pointer";
+    groupChip.addEventListener("click", function () {
+      if (!state.data) return;
+      haptic("light");
+      state.view = (state.view === "picker") ? "day" : "picker";
+      render();
+    });
+  }
+
   if (tg && tg.BackButton) {
     tg.BackButton.onClick(function () {
       haptic("light");
-      state.view = "day";
-      state.selected = mskTodayISO();
-      document.querySelectorAll(".tab").forEach(function (b) {
-        b.classList.toggle("is-active", b.dataset.tab === "day");
-      });
+      if (state.view === "picker") {
+        state.view = "day";
+      } else {
+        state.view = "day";
+        state.selected = mskTodayISO();
+        document.querySelectorAll(".tab").forEach(function (b) {
+          b.classList.toggle("is-active", b.dataset.tab === "day");
+        });
+      }
       render();
     });
   }

@@ -14,5 +14,9 @@ jobs:
           python-version: "3.12"
       - name: Install dependencies
         run: pip install -r requirements.txt
+      - name: Syntax-check webapp JS
+        run: |
+          node --check webapp/js/app.js
+          node --check webapp/js/liquid.js
       - name: Run tests
         run: python -m unittest discover -s tests -v

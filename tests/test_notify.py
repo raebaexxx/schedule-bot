@@ -134,8 +134,14 @@ class TestSchedulerTick(unittest.IsolatedAsyncioTestCase):
         st.get_or_create(100)
         bot = FakeBot()
         sched = Scheduler(bot, st)
-        await sched.tick()
+        # детерминированно: время юзера ещё не наступило
+        with unittest.mock.patch("scheduler.now",
+                                 return_value=msk(6, 59, date(2026, 9, 7))), \
+                unittest.mock.patch("scheduler.digest_text",
+                                    return_value="<b>Доброе утро!</b>"):
+            await sched.tick()
         self.assertEqual(len(bot.sent), 0, "07:00 ещё не наступило — молчим")
+        tmp.cleanup()
 
     async def test_tick_sends_after_target_time(self):
         tmp = tempfile.TemporaryDirectory()
