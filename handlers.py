@@ -138,7 +138,7 @@ async def cmd_help(message: Message) -> None:
         "/tomorrow — расписание на завтра\n"
         "/week — вся неделя\n"
         "/date DD.MM — расписание на дату (например /date 15.09)\n"
-        "/monday ... /friday — по дням недели\n"
+        "/monday ... /saturday — по дням недели\n"
         "/settings — дайджест: вкл/выкл и время\n"
         "/webapp — открыть приложение (liquid glass)" +
         ("" if WEBAPP_URL else "\n\nПриложение ещё не настроено (WEBAPP_URL в .env)"),
@@ -191,7 +191,7 @@ async def cmd_date(message: Message) -> None:
 
 
 DAY_COMMANDS = {"monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3,
-                "friday": 4}
+                "friday": 4, "saturday": 5}
 
 
 @router.message(Command(*DAY_COMMANDS))
