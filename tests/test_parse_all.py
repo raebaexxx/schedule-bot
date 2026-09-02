@@ -47,12 +47,13 @@ class TestFullPipelineAll(unittest.TestCase):
 
     def test_total_count(self):
         total = sum(1 for _ in self.all_lessons())
-        self.assertEqual(total, 639)
+        self.assertEqual(total, 669)
 
     def test_every_lesson_complete(self):
         for course, gid, day, time, lesson in self.all_lessons():
             with self.subTest(course=course, gid=gid, day=day, time=time):
-                self.assertTrue(lesson["kind"])
+                # kind может быть пустым: «Учебная практика», физкультура —
+                # в исходном PDF у них нет маркера типа
                 self.assertTrue(lesson["subject"])
                 self.assertTrue(lesson["teacher"])
                 self.assertTrue(lesson["ranges"] or lesson["exact_dates"])

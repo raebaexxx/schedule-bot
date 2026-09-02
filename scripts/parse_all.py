@@ -381,12 +381,32 @@ def parse_course_pdf(pdf_path: Path) -> tuple[str, dict[str, dict]]:
             lines_of_col.setdefault(w["line_y"], []).append(w)
         ordered_lines = [lines_of_col[y] for y in sorted(lines_of_col)]
 
+        # --- сегментация по блокам занятий ---
+        # строки-мусор: только 1-2-значные числа (переползшие чужие вирт-цифры)
+        ordered_lines = [wl for wl in ordered_lines
+                         if not all(re.match(r"^\d{1,2}$", w["text"])
+                                    for w in wl)]
+
+        def is_sandwich(wl: list[dict]) -> bool:
+            """Сэндвич-строка: ≤3 слов, все — фамилия/инициалы/вирт/ауд.
+            (ФИО, разбитое переносами: 'НИКИФОРОВА' / 'Л.С.')."""
+            if not (1 <= len(wl) <= 3):
+                return False
+            return all(SURNAME_RE.match(w["text"])
+                       or INITIALS_RE.match(w["text"])
+                       or pa_VIRT_RE.match(w["text"]) for w in wl)
+
+        GAP_SPLIT = 5.5  # pt: внутри занятия ≤4-5.5, граница занятия >5.5
         blocks: list[list[dict]] = []
         cur: list[dict] = []
+        prev_y: float | None = None
         for wl in ordered_lines:
             words = [w["text"] for w in wl]
-            starts_new = bool(KIND_COMBINED_RE.match(words[0])
-                              or KIND_SIMPLE_RE.match(words[0]))
+            starts_kind = bool(KIND_COMBINED_RE.match(words[0])
+                               or KIND_SIMPLE_RE.match(words[0]))
+            gap = (wl[0]["y0"] - prev_y) if prev_y is not None else 0.0
+            starts_gap = gap > GAP_SPLIT and not is_sandwich(wl)
+            starts_new = starts_kind or starts_gap
             if starts_new and cur:
                 # строки-хвосты ячейки («вирт. ауд.», «вирт. ауд. 3») уводим
                 # в НАСТУПАЮЩЕЕ занятие, но только если в них нет цифры-номера
@@ -397,8 +417,11 @@ def parse_course_pdf(pdf_path: Path) -> tuple[str, dict[str, dict]]:
                     virt_tail.insert(0, cur.pop())
                 blocks.append(cur)
                 cur = virt_tail + [wl]
+                prev_y = wl[0]["y0"]
                 continue
             cur.append(wl)
+            if prev_y is None or wl[0]["y0"] > prev_y:
+                prev_y = wl[0]["y0"]
         if cur:
             blocks.append(cur)
 

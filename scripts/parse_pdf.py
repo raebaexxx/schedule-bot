@@ -391,10 +391,14 @@ def parse_lesson(tokens: list[str]) -> dict | None:
     # сверху в Excel-ячейке): "вирт. ауд." / "вирт. ауд. 3", затем "лек. ..."
     lead_room = None
     lead = 0
+    if not tokens:
+        return None
     while lead < len(tokens) and (
             re.match(r"^(вирт[.]?|ауд[.]?)$", tokens[lead])
             or re.match(r"^\d+$", tokens[lead])):
         lead += 1
+    if lead >= len(tokens):
+        return None  # одни числа/вирт-токены — мусор
     if lead and lead < len(tokens) and \
             (KIND_COMBINED_RE.match(tokens[lead]) or KIND_SIMPLE_RE.match(tokens[lead])):
         nums = [t for t in tokens[:lead] if re.match(r"^\d+$", t)]
