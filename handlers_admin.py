@@ -121,6 +121,24 @@ def _stats_text(storage: SelectionStorage) -> str:
     lines.append("")
     for g in sorted(by_group, key=lambda g: -by_group[g]):
         lines.append(f"  {g}: {by_group[g]}")
+
+    # детальный список юзеров
+    lines.append("")
+    lines.append(f"<b>Пользователи ({total})</b>")
+    for cid, u in sorted(users.items(), key=lambda kv: (kv[1].get("course", "9"),
+                                                        kv[1].get("group", ""))):
+        name = u.get("first_name") or "—"
+        uname = f"@{u['username']}" if u.get("username") else ""
+        course, gid = u.get("course"), u.get("group")
+        grp = ""
+        if course and gid:
+            disp = COURSES.get(course, {}).get("groups", {}) \
+                .get(gid, {}).get("display", gid)
+            grp = f" · {disp}"
+        dg = f" · {u.get('time', '07:00')}" if u.get("digest_enabled") \
+            else " · дайджест выкл"
+        lines.append(f"  <code>{cid}</code> {html.escape(name)} "
+                     f"{html.escape(uname)}{grp}{dg}")
     return "\n".join(lines)
 
 

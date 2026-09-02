@@ -132,7 +132,10 @@ async def ensure_selected(message: Message) -> tuple[str, str] | None:
 @router.message(CommandStart())
 async def cmd_start(message: Message) -> None:
     # подписка на дайджест создаётся по умолчанию (07:00 МСК), отключается в /settings
-    storage.get_or_create(message.chat.id)
+    u = message.from_user
+    storage.get_or_create(message.chat.id,
+                          first_name=(u.first_name or "") if u else "",
+                          username=(u.username or "") if u else "")
     course, gid = get_ctx(message.chat.id)
     if course not in COURSES or gid not in group_ids(course):
         await message.answer(

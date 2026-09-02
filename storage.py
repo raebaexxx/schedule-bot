@@ -56,14 +56,23 @@ class SelectionStorage:
 
     # --- утренний дайджест (общий бот) ---
 
-    def get_or_create(self, chat_id: int | str) -> dict:
+    def get_or_create(self, chat_id: int | str,
+                      first_name: str | None = None,
+                      username: str | None = None) -> dict:
         data = self._load()
         user = data.get(str(chat_id))
         if user is None:
             user = {"time": "07:00", "digest_enabled": True,
-                    "last_sent": None}
+                    "last_sent": None, "first_name": first_name or "",
+                    "username": username or ""}
             data[str(chat_id)] = user
             self._save(data)
+        else:
+            # обновляем профиль, если изменился
+            if first_name and user.get("first_name") != first_name:
+                user["first_name"] = first_name
+            if username is not None and user.get("username") != username:
+                user["username"] = username
         user.setdefault("time", "07:00")
         user.setdefault("digest_enabled", True)
         return user

@@ -49,6 +49,27 @@ class TestAdminGuard(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(hasattr(m, "answered"))
 
 
+class TestUserProfiles(unittest.TestCase):
+    def test_profile_saved_and_listed(self):
+        import tempfile
+        from storage import SelectionStorage
+        tmp = tempfile.TemporaryDirectory()
+        st = SelectionStorage(Path(tmp.name) / "u.json")
+        st.get_or_create(111, first_name="Вася", username="vasya")
+        st.set_group(111, "4", "БА-231")
+        st.get_or_create(111, first_name="Вася", username="vasya")  # повтор
+        u = st.get(111)
+        self.assertEqual(u["first_name"], "Вася")
+        self.assertEqual(u["username"], "vasya")
+        st.get_or_create(222, first_name="Петя", username=None)
+        text = ha._stats_text(st)
+        self.assertIn("<code>111</code> Вася @vasya", text)
+        self.assertIn("БА-231", text)
+        self.assertIn("<code>222</code> Петя", text)
+        self.assertIn("без группы", text)
+        tmp.cleanup()
+
+
 class TestAdminHelpers(unittest.TestCase):
     def test_uptime_nonnegative(self):
         self.assertGreater(ha.uptime_seconds(), 0)
