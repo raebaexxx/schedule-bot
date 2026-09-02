@@ -47,7 +47,7 @@ class TestFullPipelineAll(unittest.TestCase):
 
     def test_total_count(self):
         total = sum(1 for _ in self.all_lessons())
-        self.assertEqual(total, 636)
+        self.assertEqual(total, 639)
 
     def test_every_lesson_complete(self):
         for course, gid, day, time, lesson in self.all_lessons():

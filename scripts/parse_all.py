@@ -319,18 +319,14 @@ def parse_course_pdf(pdf_path: Path) -> tuple[str, dict[str, dict]]:
     if not global_rows:
         raise RuntimeError(f"{pdf_path.name}: не найдено строк расписания")
 
-    schedule: dict[str, dict] = {}
-    # подпись под таблицей: cutoff по Y для каждой колонки
-    cutoffs: dict[int, float | None] = {}
-    for k in range(len(labels)):
-        cutoff_y = None
-        for ln in lines:
-            sig = [w for w in ln["words"]
-                   if w["text"] in ("Начальник", "УМО", "ОРО")]
-            if sig and bounds[k]["left"] <= min(w["x0"] for w in sig):
+    # подпись под таблицей: cutoff — ГЛОБАЛЬНЫЙ (по самой верхней строке
+    # подписи), т.к. вирт-цифры и хвосты подписей переползают между колонками
+    cutoff_y = None
+    for ln in lines:
+        if any(w["text"] in ("Начальник", "УМО", "ОРО") for w in ln["words"]):
+            if cutoff_y is None or ln["y"] < cutoff_y:
                 cutoff_y = ln["y"]
-                break
-        cutoffs[k] = cutoff_y
+    cutoffs = {k: cutoff_y for k in range(len(labels))}
 
     col_words_all: dict[int, list[dict]] = {}
     for k in range(len(labels)):
@@ -339,13 +335,41 @@ def parse_course_pdf(pdf_path: Path) -> tuple[str, dict[str, dict]]:
             if cutoffs[k] is not None and ln["y"] >= cutoffs[k]:
                 continue
             for w in ln["words"]:
-                if bounds[k]["left"] <= w["x0"] < bounds[k]["right"]:
-                    cw.append({
-                        "text": w["text"], "x0": w["x0"], "x1": w["x1"],
-                        "y0": w["y0"], "y1": w["y1"], "line_y": ln["y"],
-                    })
+                # Excel выводит цифры виртуальных аудиторий («вирт ауд. 5»)
+                # с overflow за правую границу колонки. Такие цифры висят
+                # далеко от остального контента строки — возвращаем их
+                # владельцу по X-близости.
+                if not (bounds[k]["left"] <= w["x0"] < bounds[k]["right"]):
+                    if not (re.match(r"^\d+$", w["text"]) and k + 1 < len(labels)
+                            and bounds[k]["right"] <= w["x0"] < bounds[k]["right"] + 12):
+                        continue
+                cw.append({
+                    "text": w["text"], "x0": w["x0"], "x1": w["x1"],
+                    "y0": w["y0"], "y1": w["y1"], "line_y": ln["y"],
+                })
         col_words_all[k] = cw
 
+    # цифры виртуальных аудиторий («вирт ауд. 5») Excel печатает с overflow
+    # за границу колонки — возвращаем их владельцу (колонка кончается вирт/ауд)
+    all_ys = sorted({w["line_y"] for cw in col_words_all.values() for w in cw})
+    for y in all_ys:
+        for k in range(len(labels) - 1):
+            wk = [w for w in col_words_all[k] if w["line_y"] == y]
+            wk1 = [w for w in col_words_all[k + 1] if w["line_y"] == y]
+            if not wk or not wk1:
+                continue
+            wk.sort(key=lambda w: w["x0"])
+            wk1.sort(key=lambda w: w["x0"])
+            if not re.match(r"^(вирт|ауд)[.]?$", wk[-1]["text"]):
+                continue
+            first = wk1[0]
+            if re.match(r"^\d{1,2}$", first["text"]) \
+                    and first["x0"] < bounds[k]["right"] + 40:
+                col_words_all[k].append(first)
+                col_words_all[k + 1] = [
+                    w for w in col_words_all[k + 1] if w is not first]
+
+    schedule: dict[str, dict] = {}
     for k, label in enumerate(labels):
         t_zone = teacher_zones[k]
         col_words = col_words_all[k]
@@ -363,12 +387,12 @@ def parse_course_pdf(pdf_path: Path) -> tuple[str, dict[str, dict]]:
             starts_new = bool(KIND_COMBINED_RE.match(words[0])
                               or KIND_SIMPLE_RE.match(words[0]))
             if starts_new and cur:
-                # строки-хвосты ячейки («вирт. ауд. 3») уводим в НАСТУПАЮЩЕЕ
-                # занятие, а не в предыдущее
+                # строки-хвосты ячейки («вирт. ауд.», «вирт. ауд. 3») уводим
+                # в НАСТУПАЮЩЕЕ занятие, но только если в них нет цифры-номера
+                # аудитории: «вирт ауд. 5» — номер принадлежит ПРЕДЫДУЩЕЙ паре
                 virt_tail = []
-                while cur and all(
-                    pa_VIRT_RE.match(w["text"]) for w in cur[-1]
-                ):
+                while cur and all(pa_VIRT_RE.match(w["text"]) for w in cur[-1]) \
+                        and not any(re.match(r"^\d+$", w["text"]) for w in cur[-1]):
                     virt_tail.insert(0, cur.pop())
                 blocks.append(cur)
                 cur = virt_tail + [wl]
@@ -491,6 +515,24 @@ def parse_course_pdf(pdf_path: Path) -> tuple[str, dict[str, dict]]:
                         subject = re.sub(rf"(?<!\S){re.escape(w['text'])}(?!\S)",
                                          "", subject)
             lesson["subject"] = re.sub(r"\s+", " ", subject).strip()
+            # хирургия склеек: Excel-overflow приносит в subject хвосты чужих
+            # ячеек (повторный маркер типа, номера вирт-аудиторий, подпись)
+            subj2 = lesson["subject"]
+            # 1) обрезать всё после ВТОРОГО маркера типа («… 5 лек., пр. …»)
+            for m in re.finditer(r"(лек\., пр\.|лек\.|пр\.|лаб\.)", subj2):
+                if m.start() > 0:
+                    subj2 = subj2[:m.start()]
+                    break
+            # 2) хвостовые ФИО (фамилия + инициалы) из чужой ячейки
+            subj2 = re.sub(
+                r"\s+[А-ЯЁ][а-яё]+\s+[А-ЯЁ]\.[А-ЯЁ]\.?\s*$", "", subj2)
+            subj2 = re.sub(r"\s+[А-ЯЁ]{2,}\s+[А-ЯЁ]\.[А-ЯЁ]\.?\s*$", "", subj2)
+            # 3) одиночные цифры 3/5 (номера вирт-аудиторий), но не «4.0»
+            subj2 = re.sub(r"(?<![\w.])[35](?![\w.])", "", subj2)
+            # 4) повторы одиночных слов («материального производства» дубль
+            #    не трогаем — безопаснее оставить)
+            subj2 = re.sub(r"\s+", " ", subj2).strip(" ,")
+            lesson["subject"] = subj2
             lesson.pop("_teacher_span", None)
             if not lesson["subject"]:
                 continue
