@@ -43,7 +43,8 @@ def is_admin(user_id: int | None) -> bool:
 
 
 def admin_guard(func):
-    """Гвард: не-админ получает отказ, callback просто закрывается."""
+    """Гвард: не-админ получает отказ, callback просто закрывается.
+    kwargs (dispatcher, state и т.п.) пробрасываются как есть."""
     async def wrapper(event, *args, **kwargs):
         user_id = getattr(event, "from_user", None)
         uid = user_id.id if user_id else None
@@ -71,7 +72,7 @@ def admin_menu() -> InlineKeyboardMarkup:
 
 @router.message(F.text == "/admin")
 @admin_guard
-async def cmd_admin(message: Message) -> None:
+async def cmd_admin(message: Message, **kwargs) -> None:
     await message.answer("<b>Админ-панель</b>", reply_markup=admin_menu())
 
 
@@ -123,7 +124,7 @@ def _stats_text(storage: SelectionStorage) -> str:
 
 @router.callback_query(F.data == "adm:stats")
 @admin_guard
-async def cb_stats(callback: CallbackQuery, storage: SelectionStorage) -> None:
+async def cb_stats(callback: CallbackQuery, storage: SelectionStorage, **kwargs) -> None:
     try:
         await callback.message.edit_text(_stats_text(storage),
                                          reply_markup=admin_menu())
@@ -175,7 +176,7 @@ def uptime_seconds() -> float:
 
 @router.callback_query(F.data == "adm:status")
 @admin_guard
-async def cb_status(callback: CallbackQuery, storage: SelectionStorage) -> None:
+async def cb_status(callback: CallbackQuery, storage: SelectionStorage, **kwargs) -> None:
     try:
         await callback.message.edit_text(_status_text(storage),
                                          reply_markup=admin_menu())
@@ -205,7 +206,7 @@ def audience_keyboard() -> InlineKeyboardMarkup:
 
 @router.callback_query(F.data == "adm:broadcast")
 @admin_guard
-async def cb_broadcast(callback: CallbackQuery, state: FSMContext) -> None:
+async def cb_broadcast(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
     await state.set_state(BroadcastStates.audience)
     await callback.message.edit_text(
         "Кому отправить?", reply_markup=audience_keyboard())
@@ -214,7 +215,7 @@ async def cb_broadcast(callback: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(BroadcastStates.audience, F.data.startswith("aud:"))
 @admin_guard
-async def cb_audience(callback: CallbackQuery, state: FSMContext) -> None:
+async def cb_audience(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
     data = callback.data.split(":", 1)[1]
     if data == "all":
         audience = {"all": True}
@@ -232,7 +233,7 @@ async def cb_audience(callback: CallbackQuery, state: FSMContext) -> None:
 
 @router.message(BroadcastStates.text, F.text)
 @admin_guard
-async def msg_broadcast_text(message: Message, state: FSMContext) -> None:
+async def msg_broadcast_text(message: Message, state: FSMContext, **kwargs) -> None:
     await state.update_data(text=message.text)
     await state.set_state(BroadcastStates.confirm)
     data = await state.get_data()
@@ -250,7 +251,7 @@ async def msg_broadcast_text(message: Message, state: FSMContext) -> None:
 @router.callback_query(BroadcastStates.confirm, F.data == "aud:go")
 @admin_guard
 async def cb_broadcast_go(callback: CallbackQuery, state: FSMContext,
-                          bot: Bot, storage: SelectionStorage) -> None:
+                          bot: Bot, storage: SelectionStorage, **kwargs) -> None:
     data = await state.get_data()
     await state.clear()
     aud, text = data["audience"], data["text"]
@@ -276,7 +277,7 @@ async def cb_broadcast_go(callback: CallbackQuery, state: FSMContext,
 
 @router.callback_query(F.data == "adm:cancel")
 @admin_guard
-async def cb_cancel(callback: CallbackQuery, state: FSMContext) -> None:
+async def cb_cancel(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
     await state.clear()
     try:
         await callback.message.edit_text("Отменено.", reply_markup=admin_menu())
@@ -293,7 +294,7 @@ class PdfStates(StatesGroup):
 
 @router.callback_query(F.data == "adm:pdf")
 @admin_guard
-async def cb_pdf(callback: CallbackQuery, state: FSMContext) -> None:
+async def cb_pdf(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
     await state.set_state(PdfStates.waiting_files)
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Отмена", callback_data="adm:cancel")]])
@@ -308,7 +309,7 @@ async def cb_pdf(callback: CallbackQuery, state: FSMContext) -> None:
 @router.message(PdfStates.waiting_files, F.document)
 @admin_guard
 async def msg_pdf_files(message: Message, state: FSMContext,
-                        bot: Bot, storage: SelectionStorage) -> None:
+                        bot: Bot, storage: SelectionStorage, **kwargs) -> None:
     doc = message.document
     if not doc.file_name or not doc.file_name.lower().endswith(".pdf"):
         await message.answer("Это не PDF. Присылай .pdf файлы.")
@@ -365,5 +366,5 @@ def _parse_summary(output: str) -> str:
 
 @router.message(PdfStates.waiting_files)
 @admin_guard
-async def msg_pdf_not_document(message: Message) -> None:
+async def msg_pdf_not_document(message: Message, **kwargs) -> None:
     await message.answer("Жду PDF-документы (или «Отмена» в меню выше).")
