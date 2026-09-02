@@ -5,3 +5,5 @@ __pycache__/
 bot.log
 bot.log.*
 data/users.json
+data/pending_changes.json
+data/users_all.json
