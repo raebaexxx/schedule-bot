@@ -25,6 +25,8 @@ from formatter import now
 from schedule_all import COURSE_IDS, COURSES
 from storage import SelectionStorage
 
+storage = SelectionStorage()
+
 router = Router()
 
 ROOT = Path(__file__).resolve().parent
@@ -124,7 +126,7 @@ def _stats_text(storage: SelectionStorage) -> str:
 
 @router.callback_query(F.data == "adm:stats")
 @admin_guard
-async def cb_stats(callback: CallbackQuery, storage: SelectionStorage, **kwargs) -> None:
+async def cb_stats(callback: CallbackQuery, **kwargs) -> None:
     try:
         await callback.message.edit_text(_stats_text(storage),
                                          reply_markup=admin_menu())
@@ -176,7 +178,7 @@ def uptime_seconds() -> float:
 
 @router.callback_query(F.data == "adm:status")
 @admin_guard
-async def cb_status(callback: CallbackQuery, storage: SelectionStorage, **kwargs) -> None:
+async def cb_status(callback: CallbackQuery, **kwargs) -> None:
     try:
         await callback.message.edit_text(_status_text(storage),
                                          reply_markup=admin_menu())
@@ -251,7 +253,8 @@ async def msg_broadcast_text(message: Message, state: FSMContext, **kwargs) -> N
 @router.callback_query(BroadcastStates.confirm, F.data == "aud:go")
 @admin_guard
 async def cb_broadcast_go(callback: CallbackQuery, state: FSMContext,
-                          bot: Bot, storage: SelectionStorage, **kwargs) -> None:
+                          **kwargs) -> None:
+    bot = callback.bot
     data = await state.get_data()
     await state.clear()
     aud, text = data["audience"], data["text"]
@@ -309,7 +312,8 @@ async def cb_pdf(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
 @router.message(PdfStates.waiting_files, F.document)
 @admin_guard
 async def msg_pdf_files(message: Message, state: FSMContext,
-                        bot: Bot, storage: SelectionStorage, **kwargs) -> None:
+                        **kwargs) -> None:
+    bot = message.bot
     doc = message.document
     if not doc.file_name or not doc.file_name.lower().endswith(".pdf"):
         await message.answer("Это не PDF. Присылай .pdf файлы.")

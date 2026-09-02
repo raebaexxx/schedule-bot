@@ -77,7 +77,7 @@ async def main() -> None:
         logging.getLogger("bot_all").warning(
             "не удалось установить меню команд", exc_info=True)
 
-    storage = SelectionStorage()
+    from handlers_admin import storage
 
     logging.getLogger("bot_all").info("Общий бот запущен")
 
