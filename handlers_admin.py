@@ -80,7 +80,7 @@ async def cmd_admin(message: Message, **kwargs) -> None:
 
 @router.callback_query(F.data == "adm:close")
 @admin_guard
-async def cb_close(callback: CallbackQuery) -> None:
+async def cb_close(callback: CallbackQuery, **kwargs) -> None:
     try:
         await callback.message.delete()
     except Exception:  # noqa: BLE001

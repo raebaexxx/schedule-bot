@@ -130,7 +130,7 @@ async def ensure_selected(message: Message) -> tuple[str, str] | None:
 
 
 @router.message(CommandStart())
-async def cmd_start(message: Message) -> None:
+async def cmd_start(message: Message, **kwargs) -> None:
     # подписка на дайджест создаётся по умолчанию (07:00 МСК), отключается в /settings
     u = message.from_user
     storage.get_or_create(message.chat.id,
@@ -148,7 +148,7 @@ async def cmd_start(message: Message) -> None:
 
 
 @router.message(Command("help"))
-async def cmd_help(message: Message) -> None:
+async def cmd_help(message: Message, **kwargs) -> None:
     await message.answer(
         "Команды:\n"
         "/start — главное меню\n"
@@ -163,12 +163,12 @@ async def cmd_help(message: Message) -> None:
 
 
 @router.message(Command("groups"))
-async def cmd_groups(message: Message) -> None:
+async def cmd_groups(message: Message, **kwargs) -> None:
     await message.answer("Выбери курс:", reply_markup=courses_keyboard())
 
 
 @router.message(Command("webapp"))
-async def cmd_webapp(message: Message) -> None:
+async def cmd_webapp(message: Message, **kwargs) -> None:
     if not WEBAPP_URL:
         await message.answer("Mini App не настроен.")
         return
@@ -194,28 +194,28 @@ async def send_week(target: Message, monday: date, course: str, gid: str) -> Non
 
 
 @router.message(Command("today"))
-async def cmd_today(message: Message) -> None:
+async def cmd_today(message: Message, **kwargs) -> None:
     ctx = await ensure_selected(message)
     if ctx:
         await send_day(message, now_iso().date(), *ctx)
 
 
 @router.message(Command("tomorrow"))
-async def cmd_tomorrow(message: Message) -> None:
+async def cmd_tomorrow(message: Message, **kwargs) -> None:
     ctx = await ensure_selected(message)
     if ctx:
         await send_day(message, now_iso().date() + timedelta(days=1), *ctx)
 
 
 @router.message(Command("week"))
-async def cmd_week(message: Message) -> None:
+async def cmd_week(message: Message, **kwargs) -> None:
     ctx = await ensure_selected(message)
     if ctx:
         await send_week(message, monday_of_iso(now_iso().date()), *ctx)
 
 
 @router.message(Command("date"))
-async def cmd_date(message: Message) -> None:
+async def cmd_date(message: Message, **kwargs) -> None:
     ctx = await ensure_selected(message)
     if not ctx:
         return
@@ -238,7 +238,7 @@ DAY_COMMANDS = {"monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3,
 
 
 @router.message(Command(*DAY_COMMANDS))
-async def cmd_day(message: Message) -> None:
+async def cmd_day(message: Message, **kwargs) -> None:
     ctx = await ensure_selected(message)
     if not ctx:
         return
@@ -293,14 +293,14 @@ def settings_text(user: dict) -> str:
 
 
 @router.message(Command("settings"))
-async def cmd_settings(message: Message) -> None:
+async def cmd_settings(message: Message, **kwargs) -> None:
     user = storage.get_or_create(message.chat.id)
     await message.answer(settings_text(user),
                          reply_markup=settings_keyboard(user.get("digest_enabled", False)))
 
 
 @router.callback_query(F.data == "settings")
-async def cb_settings(callback: CallbackQuery) -> None:
+async def cb_settings(callback: CallbackQuery, **kwargs) -> None:
     user = storage.get_or_create(callback.message.chat.id)
     await safe_edit(callback, settings_text(user),
                     settings_keyboard(user.get("digest_enabled", False)))
@@ -308,21 +308,21 @@ async def cb_settings(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data == "notify:on")
-async def cb_notify_on(callback: CallbackQuery) -> None:
+async def cb_notify_on(callback: CallbackQuery, **kwargs) -> None:
     user = storage.set_digest_enabled(callback.message.chat.id, True)
     await safe_edit(callback, settings_text(user), settings_keyboard(True))
     await callback.answer("Включено")
 
 
 @router.callback_query(F.data == "notify:off")
-async def cb_notify_off(callback: CallbackQuery) -> None:
+async def cb_notify_off(callback: CallbackQuery, **kwargs) -> None:
     user = storage.set_digest_enabled(callback.message.chat.id, False)
     await safe_edit(callback, settings_text(user), settings_keyboard(False))
     await callback.answer("Выключено")
 
 
 @router.callback_query(F.data.startswith("time:"))
-async def cb_time(callback: CallbackQuery, state: FSMContext) -> None:
+async def cb_time(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
     value = callback.data.split(":", 1)[1]
     chat_id = callback.message.chat.id
     if value == "custom":
@@ -341,7 +341,7 @@ async def cb_time(callback: CallbackQuery, state: FSMContext) -> None:
 
 
 @router.message(SettingsStates.waiting_time)
-async def msg_custom_time(message: Message, state: FSMContext) -> None:
+async def msg_custom_time(message: Message, state: FSMContext, **kwargs) -> None:
     text = (message.text or "").strip()
     if not TIME_RE.match(text):
         await message.answer(
@@ -357,7 +357,7 @@ async def msg_custom_time(message: Message, state: FSMContext) -> None:
 
 
 @router.callback_query(F.data.startswith("course:"))
-async def cb_course(callback: CallbackQuery) -> None:
+async def cb_course(callback: CallbackQuery, **kwargs) -> None:
     course = callback.data.split(":", 1)[1]
     if course not in COURSES:
         await callback.answer()
@@ -368,19 +368,19 @@ async def cb_course(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data == "courses_menu")
-async def cb_courses(callback: CallbackQuery) -> None:
+async def cb_courses(callback: CallbackQuery, **kwargs) -> None:
     await safe_edit(callback, "Выбери курс:", courses_keyboard())
     await callback.answer()
 
 
 @router.callback_query(F.data == "groups_menu")
-async def cb_groups_menu(callback: CallbackQuery) -> None:
+async def cb_groups_menu(callback: CallbackQuery, **kwargs) -> None:
     await safe_edit(callback, "Выбери курс:", courses_keyboard())
     await callback.answer()
 
 
 @router.callback_query(F.data.startswith("pick:"))
-async def cb_pick(callback: CallbackQuery) -> None:
+async def cb_pick(callback: CallbackQuery, **kwargs) -> None:
     _, course, gid = callback.data.split(":", 2)
     if course not in COURSES or gid not in group_ids(course):
         await callback.answer()
@@ -393,7 +393,7 @@ async def cb_pick(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data == "today")
-async def cb_today(callback: CallbackQuery) -> None:
+async def cb_today(callback: CallbackQuery, **kwargs) -> None:
     course, gid = get_ctx(callback.message.chat.id)
     if not course:
         await callback.answer("Сначала выбери группу", show_alert=True)
@@ -404,7 +404,7 @@ async def cb_today(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data == "tomorrow")
-async def cb_tomorrow(callback: CallbackQuery) -> None:
+async def cb_tomorrow(callback: CallbackQuery, **kwargs) -> None:
     course, gid = get_ctx(callback.message.chat.id)
     if not course:
         await callback.answer("Сначала выбери группу", show_alert=True)
@@ -416,7 +416,7 @@ async def cb_tomorrow(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data == "week")
-async def cb_week(callback: CallbackQuery) -> None:
+async def cb_week(callback: CallbackQuery, **kwargs) -> None:
     course, gid = get_ctx(callback.message.chat.id)
     if not course:
         await callback.answer("Сначала выбери группу", show_alert=True)
@@ -428,7 +428,7 @@ async def cb_week(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data == "menu")
-async def cb_menu(callback: CallbackQuery) -> None:
+async def cb_menu(callback: CallbackQuery, **kwargs) -> None:
     course, gid = get_ctx(callback.message.chat.id)
     if not course:
         await callback.answer()
@@ -439,7 +439,7 @@ async def cb_menu(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data.startswith("daynav:"))
-async def cb_daynav(callback: CallbackQuery) -> None:
+async def cb_daynav(callback: CallbackQuery, **kwargs) -> None:
     course, gid = get_ctx(callback.message.chat.id)
     if not course:
         await callback.answer()
@@ -455,7 +455,7 @@ async def cb_daynav(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data.startswith("weeknav:"))
-async def cb_weeknav(callback: CallbackQuery) -> None:
+async def cb_weeknav(callback: CallbackQuery, **kwargs) -> None:
     course, gid = get_ctx(callback.message.chat.id)
     if not course:
         await callback.answer()
