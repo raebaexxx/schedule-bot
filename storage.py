@@ -116,3 +116,6 @@ class SelectionStorage:
         user["course"], user["group"] = course, gid
         data[str(chat_id)] = user
         self._save(data)
+
+    def all_chat_ids(self) -> list[str]:
+        return list(self._load().keys())

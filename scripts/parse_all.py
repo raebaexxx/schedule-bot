@@ -729,6 +729,26 @@ def main() -> None:
     }
     out = ROOT / "data" / "schedule_all.json"
     out.parent.mkdir(exist_ok=True)
+
+    # дифф со старой версией -> очередь уведомлений (changes.py)
+    old_json = None
+    if out.exists():
+        try:
+            old_json = json.loads(out.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            old_json = None
+    if old_json is not None:
+        sys.path.insert(0, str(ROOT))
+        from changes import compute_changes, save_pending
+        changes = compute_changes(old_json, payload)
+        if save_pending(changes):
+            n_groups = len(changes)
+            n_lines = sum(len(v) for v in changes.values())
+            print(f"Изменения: {n_lines} в {n_groups} группах "
+                  f"-> data/pending_changes.json")
+        else:
+            print("Изменений нет")
+
     out.write_text(json.dumps(payload, ensure_ascii=False, indent=1),
                    encoding="utf-8")
     print(f"\nJSON: {out}")

@@ -10,6 +10,8 @@ from aiogram.enums import ParseMode
 
 from config import BOT_TOKEN_ALL, WEBAPP_URL
 from handlers_all import router
+from notify import notify_changes
+from storage import SelectionStorage
 
 LOG_FILE = __import__("pathlib").Path(__file__).parent / "bot_all.log"
 
@@ -73,6 +75,16 @@ async def main() -> None:
             "не удалось установить меню команд", exc_info=True)
 
     logging.getLogger("bot_all").info("Общий бот запущен")
+
+    # при старте: разослать накопившиеся уведомления об изменениях расписания
+    try:
+        sent = await notify_changes(bot, SelectionStorage())
+        if sent:
+            logging.getLogger("bot_all").info("доставлено уведомлений: %s", sent)
+    except Exception:  # noqa: BLE001
+        logging.getLogger("bot_all").warning(
+            "ошибка рассылки изменений", exc_info=True)
+
     await dp.start_polling(bot)
 
 
