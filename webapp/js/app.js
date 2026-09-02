@@ -621,7 +621,12 @@
       sub.textContent = "Выберите группу";
     }
     if (footer) {
-      footer.textContent = "источник: PDF расписания · обновляется парсером";
+      var gen = state.data.generated_at || "";
+      if (gen) {
+        var m = gen.match(/(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+        footer.textContent = m ? ("расписание обновлено: " + m[3] + "." + m[2] +
+          "." + m[1] + " в " + m[4] + ":" + m[5] + " МСК") : "";
+      }
     }
   }
 

@@ -28,7 +28,8 @@ import json
 import re
 import subprocess
 import sys
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -721,8 +722,10 @@ def main() -> None:
                        for gid, g in groups.items()},
         }
 
+    now_msk = datetime.now(ZoneInfo("Europe/Moscow"))
     payload = {
         "generated": date.today().isoformat(),
+        "generated_at": now_msk.isoformat(timespec="minutes"),
         "semester_start": SEMESTER_START.isoformat(),
         "semester_end": SEMESTER_END.isoformat(),
         "courses": courses,
