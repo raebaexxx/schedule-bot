@@ -22,6 +22,9 @@
   секции соответствующего дня (секции определяются по меткам времени).
 
 Выход: data/schedule.json и schedule_data.py (генерируется).
+СТАТУС: standalone-режим устарел (личный бот удалён). Модуль остаётся
+БИБЛИОТЕКОЙ для scripts/parse_all.py: parse_lesson, _distribute_lessons,
+cluster_visual_lines, DAY_*, TIME/SURNAME/INITIALS регексы и т.д.
 """
 
 import json

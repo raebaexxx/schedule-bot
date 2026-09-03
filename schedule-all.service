@@ -1,0 +1,15 @@
+[Unit]
+Description=Общий бот расписания ЕТИ (все курсы и группы)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=deployall
+WorkingDirectory=/opt/schedule-all
+ExecStart=/opt/schedule-all/.venv/bin/python bot_all.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

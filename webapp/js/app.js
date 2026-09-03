@@ -95,26 +95,19 @@
   var footer = document.getElementById("footer");
 
   function currentGroup() {
-    if (!state.data) return null;
-    if (state.data.courses) {
-      if (!state.course || !state.group ||
-          !state.data.courses[state.course] ||
-          !state.data.courses[state.course].groups[state.group]) {
-        return null;
-      }
-      var c = state.data.courses[state.course];
-      return {
-        course: state.course,
-        id: state.group,
-        display: c.groups[state.group].display || state.group,
-        semester: c.semester,
-        days: c.groups[state.group].days
-      };
+    if (!state.data || !state.data.courses) return null;
+    if (!state.course || !state.group ||
+        !state.data.courses[state.course] ||
+        !state.data.courses[state.course].groups[state.group]) {
+      return null;
     }
-    /* legacy: одиночное расписание */
+    var c = state.data.courses[state.course];
     return {
-      course: null, id: null, display: "БА-231",
-      semester: state.data.semester, days: state.data.schedule
+      course: state.course,
+      id: state.group,
+      display: c.groups[state.group].display || state.group,
+      semester: c.semester,
+      days: c.groups[state.group].days
     };
   }
 
@@ -585,8 +578,7 @@
   }
 
   function load() {
-    var urls = ["../data/schedule_all.json", "data/schedule_all.json",
-                "../data/schedule.json", "data/schedule.json"];
+    var urls = ["data/schedule_all.json", "../data/schedule_all.json"];
     var attempt = 0;
 
     function tryNext() {

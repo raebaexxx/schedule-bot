@@ -65,20 +65,20 @@ notify.py                   рассылка уведомлений об изм�
 changes.py                  дифф старый/новый schedule_all.json + очередь
 storage.py                  подписки дайджеста (data/users.json) и выбор
                             групп (data/users_all.json), атомарная JSON-запись
-schedule_data.py            ГЕНЕРИРУЕТСЯ parse_pdf.py — не править руками
 schedule_all.py             обёртка над data/schedule_all.json
-data/schedule.json          БА-231 (артефакт parse_pdf.py)
+handlers_admin.py           /admin: статистика, рассылка, статус, PDF-обновление
+notify.py / changes.py      уведомления об изменениях расписания
 data/schedule_all.json      все курсы (артефакт parse_all.py)
+data/users_all.json         юзеры общего бота (выбор группы, дайджест)
 data/pending_changes.json   очередь изменений (создаётся парсером,
                             рассылается и удаляется ботом)
-data/layout.txt, data/bbox.xml,        выгрузки pdftotext — фикстуры тестов
-data/layout_N.txt, data/bbox_N.xml     (per-course при parse_all)
-scripts/parse_pdf.py        парсер одного PDF -> одна группа
+scripts/parse_pdf.py        БИБЛИОТЕКА разбора занятия (исп. parse_all.py);
+                            standalone-режим устарел
 scripts/parse_all.py        парсер 4 PDF -> все курсы/группы
-scripts/issue_cert.sh       автo-выпуск Let's Encrypt (использовался при деплое)
 webapp/                     Mini App (vanilla HTML/CSS/JS, liquid glass)
-tests/                      67+ unittest
+tests/                      40 unittest
 PLAN.md                     этот файл; CHAT_EXPORT.md — полный экспорт чата
+ANALYSIS.md                 анализ вариантов парсинга (гэп-эвристика)
 ```
 
 ## 4. Формат данных
@@ -211,7 +211,19 @@ PDF — Excel-выгрузка: сетка |Дни|Часы|группа×(Ди�
 6. Заполнить data/pending_changes.json вручную, если обновление делалось
    мимо git.
 
-## 10. Куда смотреть новому ассистенту
+## 10. Безопасность
+
+- **Инцидент 02.09.2026:** токен общего бота попал в чат и был закоммичен в
+  CHAT_EXPORT.md → GitHub Secret scanning сработал. Требуется (пользователь):
+  ревокнуть токен через @BotFather (/mybots → API Token → Revoke), обновить
+  `BOT_TOKEN_ALL` в `/opt/schedule-all/.env` на сервере, рестарт. В CHAT_EXPORT
+  токен замаскирован (`[REDACTED]`), но история git хранит старые коммиты —
+  при необходимости переписать историю (git filter-repo) или принять остаточный
+  риск (токен будет мёртв после ревоки).
+- Токены хранятся ТОЛЬКО в `.env` на сервере (600), `.env` в .gitignore.
+- ADMIN_IDS захардкожен fallback в config.py + переопределяется через .env.
+
+## 11. Куда смотреть новому ассистенту
 
 - Прочитать этот файл, затем `README.md`, затем код: parse_all.py →
   parse_pdf.py (ядро разбора) → handlers_all.py → formatter_all.py.

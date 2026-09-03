@@ -2459,7 +2459,7 @@ Open-Meteo — идеальный вариант: **полностью бесп�
 
 ## USER
 
-так, давай пока вопрос с погодой отложим. смотри что сейчас надо: я создал отдельного бота для этого (текущий на сервере не трогай, пусть раоббает), его api key - 8701285227:AAGB--nKyK-oW-kaKqL8TRgxYOtP4QWb-kY . в чем задача - нужно создать общего бота с рассписанием в станкине, а не только для одной группы (то есть все 4 курсы и все группы в них). файлы пдф с их рассписанием тут - '/home/raebae/Загрузки/StankinE_Schedule' (все 4 курса).
+так, давай пока вопрос с погодой отложим. смотри что сейчас надо: я создал отдельного бота для этого (текущий на сервере не трогай, пусть раоббает), его api key - [REDACTED — TOKEN REVOKED, см. PLAN.md §Безопасность] . в чем задача - нужно создать общего бота с рассписанием в станкине, а не только для одной группы (то есть все 4 курсы и все группы в них). файлы пдф с их рассписанием тут - '/home/raebae/Загрузки/StankinE_Schedule' (все 4 курса).
 
 ---
 
@@ -3420,7 +3420,7 @@ CI зелёный. Разворачиваю на VPS: клон, `.env` с нов
 
 > [tool: bash] {"command": "ssh -o BatchMode=yes root@144.31.207.159 'set -e\ngit clone --depth 1 https://github.com/raebaexxx/schedule-bot.git /opt/schedule-all 2>&1 | tail -1\ncd /opt/schedule-all && python3 -m venv .venv && .venv/bi
 
-> [tool: bash] {"command": "ssh -o BatchMode=yes root@144.31.207.159 'set -e\ncat > /opt/schedule-all/.env <<EOF\nBOT_TOKEN_ALL=8701285227:AAGB--nKyK-oW-kaKqL8TRgxYOtP4QWb-kY\nWEBAPP_URL=https://app.raebae.fun:8445/all/\nEOF\nchmod 600
+> [tool: bash] {"command": "ssh -o BatchMode=yes root@144.31.207.159 'set -e\ncat > /opt/schedule-all/.env <<EOF\nBOT_TOKEN_ALL=[REDACTED — TOKEN REVOKED, см. PLAN.md §Безопасность]\nWEBAPP_URL=https://app.raebae.fun:8445/all/\nEOF\nchmod 600
 
 > [tool: bash] {"command": "ssh -o BatchMode=yes root@144.31.207.159 'sleep 2; journalctl -u schedule-all -n 4 --no-pager | tail -3; getent passwd deployall >/dev/null && chown -R deployall:deployall /opt/schedule-all'; echo \"=== ngin
 

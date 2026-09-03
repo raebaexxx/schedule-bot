@@ -3,14 +3,12 @@
 import asyncio
 import html
 import json
-import shutil
 import subprocess
 import sys
 import time
-from datetime import datetime, timezone
 from pathlib import Path
 
-from aiogram import Bot, F, Router
+from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (
@@ -21,7 +19,6 @@ from aiogram.types import (
 )
 
 from config import ADMIN_IDS, BOT_VERSION
-from formatter import now
 from schedule_all import COURSE_IDS, COURSES
 from storage import SelectionStorage
 
@@ -91,7 +88,7 @@ async def cb_close(callback: CallbackQuery, **kwargs) -> None:
 # ---------------- статистика ----------------
 
 def _stats_text(storage: SelectionStorage) -> str:
-    users = storage._load()
+    users = storage.all_users()
     total = len(users)
     by_course: dict[str, int] = {}
     by_group: dict[str, int] = {}
@@ -276,7 +273,7 @@ async def cb_broadcast_go(callback: CallbackQuery, state: FSMContext,
     data = await state.get_data()
     await state.clear()
     aud, text = data["audience"], data["text"]
-    users = storage._load()
+    users = storage.all_users()
     targets = []
     for cid, u in users.items():
         if aud.get("all"):

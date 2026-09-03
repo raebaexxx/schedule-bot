@@ -54,6 +54,9 @@ class SelectionStorage:
     def all_chat_ids(self) -> list[str]:
         return list(self._load().keys())
 
+    def all_users(self) -> dict:
+        return self._load()
+
     # --- утренний дайджест (общий бот) ---
 
     def get_or_create(self, chat_id: int | str,
