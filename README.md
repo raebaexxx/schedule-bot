@@ -102,6 +102,14 @@ journalctl -u schedule-bot -f
 
 Сервис автоматически перезапускает бота при падении и стартует при загрузке.
 
+## Веб-версия без Telegram (GitHub Pages)
+
+Расписание доступно как обычный сайт: **https://raebaexxx.github.io/schedule-bot/**
+
+Это зеркало Mini App: тот же webapp + `data/schedule_all.json`, деплоится
+автоматически workflow `pages.yml` при каждом пуше в main. Обновишь JSON —
+пушишь, сайт обновляется. Работает из РФ без VPN.
+
 ## Mini App (веб-приложение)
 
 Статика в `webapp/` (vanilla HTML/CSS/JS, без сборки): liquid glass на

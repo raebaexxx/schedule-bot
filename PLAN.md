@@ -33,6 +33,7 @@
 | nginx + TLS | сайт `schedule-app` | Let's Encrypt до 29.11.2026 (автопродление) | 80/8445 |
 | Mini App личный | `https://app.raebae.fun:8445/` | nginx root → webapp личного клона | |
 | Mini App общий | `https://app.raebae.fun:8445/all/` | nginx → `/opt/schedule-bot/webapp/all/` (копия webapp общего клона) | |
+| Зеркало сайта (без TG) | `https://raebaexxx.github.io/schedule-bot/` | GitHub Pages, workflow `pages.yml` (webapp + JSON при пуше) | |
 
 ⚠️ **Порт 8445**, а не 443: 443 занят xray (3x-ui VPN пользователя — НЕ трогать!).
 Вирт-цифры и подписи «Начальник УМО/ОРО» в PDF переползают между колонками.
