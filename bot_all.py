@@ -69,6 +69,7 @@ async def main() -> None:
             BotCommand(command="friday", description="Пятница"),
             BotCommand(command="saturday", description="Суббота"),
             BotCommand(command="groups", description="Сменить группу"),
+            BotCommand(command="find", description="Поиск: /find запрос"),
             BotCommand(command="webapp", description="Открыть приложение"),
             BotCommand(command="help", description="Помощь"),
         ])

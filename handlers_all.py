@@ -24,6 +24,7 @@ from formatter import (
     now_iso,
     split_message,
 )
+from search import search as search_lessons, format_results as format_search
 from schedule_all import (
     COURSES,
     COURSE_IDS,
@@ -159,6 +160,7 @@ async def cmd_help(message: Message, **kwargs) -> None:
         "/monday ... /saturday — по дням недели\n"
         "/groups — сменить группу\n"
         "/settings — дайджест: вкл/выкл и время\n"
+        "/find запрос — поиск по предмету/преподавателю\n"
         "/webapp — открыть приложение")
 
 
@@ -248,6 +250,28 @@ async def cmd_day(message: Message, **kwargs) -> None:
         return
     d = monday_of_iso(now_iso().date()) + timedelta(days=offset)
     await send_day(message, d, *ctx)
+
+
+
+# ---------------- поиск по предмету / преподавателю ----------------
+
+FIND_LIMIT = 120  # мягкий лимит результатов
+
+
+@router.message(Command("find"))
+async def cmd_find(message: Message, **kwargs) -> None:
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) < 2 or len(parts[1].strip()) < 3:
+        await message.answer(
+            "Формат: <code>/find запрос</code> — минимум 3 символа.\n"
+            "Ищет по названию предмета и фамилии преподавателя во всех курсах.\n"
+            "Например: <code>/find махов</code> или <code>/find сопротивление</code>")
+        return
+    query = parts[1].strip()
+    results = search_lessons(query)
+    text = format_search(results, query, max_lines=FIND_LIMIT)
+    for chunk in split_message(text):
+        await message.answer(chunk)
 
 
 # ---------------- callbacks ----------------
