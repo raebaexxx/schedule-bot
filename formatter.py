@@ -6,7 +6,8 @@ from zoneinfo import ZoneInfo
 
 TZ = ZoneInfo("Europe/Moscow")
 
-WEEKDAY_KEYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday"]
+WEEKDAY_KEYS = ["monday", "tuesday", "wednesday", "thursday", "friday",
+                "saturday", "sunday"]
 DAY_NAMES_RU = {
     "monday": "Понедельник", "tuesday": "Вторник", "wednesday": "Среда",
     "thursday": "Четверг", "friday": "Пятница", "saturday": "Суббота",
