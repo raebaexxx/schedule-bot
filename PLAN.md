@@ -186,6 +186,24 @@ PDF — Excel-выгрузка: сетка |Дни|Часы|группа×(Ди�
 7. **02.09**: меню команд (setMyCommands), /saturday в личном боте, README
    переписан, этот экспорт.
 
+## 7.1. VPN-сертификаты (x-ui/xray на 443) — НЕ часть бота, но важно
+
+На 443 работает xray (VPN: vless+tls, hysteria — 3x-ui панель). Сертификат —
+Let's Encrypt для **IP 144.31.207.159** (shortlived profile, 7 дней!) через
+acme.sh (`/root/.acme.sh/`, крон 10:53 ежедневно).
+
+Цепочка автопродления (настроено 06.09, было сломано):
+- `acme.sh --issue -d 144.31.207.159 --webroot /opt/schedule-all/webapp`
+  (webroot через nginx-80! НЕ standalone — тот конфликтует с nginx-80 и
+  требует его остановки)
+- install-cert копирует в `/root/cert/ip/{fullchain,privkey}.pem`
+- `Le_ReloadCmd='systemctl restart x-ui'` — xray перечитывает серт
+- xray читает серты из конфига inbounds в `/etc/x-ui/x-ui.db` (paths те же)
+
+Грабли: x-ui `restart` (панель) НЕ перезагружает xray-сертификаты в памяти —
+нужен рестарт самого xray-процесса (systemctl restart x-ui — рестартит оба).
+`x-ui restart-xray` рвёт SSH-сессию при выполнении из ssh-команды (443 флап).
+
 ## 8. Известные грабли
 
 - Telegram-клиенты кэшируют меню команд и Mini App — после обновления
