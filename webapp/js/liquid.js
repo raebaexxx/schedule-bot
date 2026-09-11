@@ -126,7 +126,11 @@
     filter.appendChild(feImage);
     filter.appendChild(feDisp);
     svg.appendChild(filter);
+
+    /* старый SVG фильтра убираем — иначе при каждом resize копится мусор */
+    if (el.__lgSvg) el.__lgSvg.remove();
     el.appendChild(svg);
+    el.__lgSvg = svg;
 
     var fx = "url(#" + id + ") blur(2px) saturate(175%) brightness(1.05)";
     el.style.backdropFilter = fx;
@@ -168,4 +172,13 @@
   document.head.appendChild(style);
 
   window.LiquidGlass = { init: init, supported: isChromium() };
+
+  /* шапка и табы статичны — включаем рефракцию сразу после загрузки */
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", function () {
+      try { init(); } catch (e) { /* остаётся frost-фоллбэк */ }
+    });
+  } else {
+    try { init(); } catch (e) { /* остаётся frost-фоллбэк */ }
+  }
 })();

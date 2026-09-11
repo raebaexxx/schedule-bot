@@ -128,9 +128,10 @@
 
   function lessonsForDate(iso) {
     var g = currentGroup();
+    if (!g) return [];
     var wd = weekdayOfISO(iso);
     var dayKey = DAY_KEYS[wd];
-    var day = g.days[dayKey] || g.days[dayKey];
+    var day = (g.days && g.days[dayKey]) || null;
     if (!day) return [];
     return day.slots.map(function (slot) {
       var lessons = slot.lessons.filter(function (l) { return isActive(l, iso); });
@@ -144,6 +145,10 @@
       if (iso >= ranges[i][0] && iso <= ranges[i][1]) return true;
     }
     return (lesson.exact_dates || []).indexOf(iso) !== -1;
+  }
+
+  function safeHref(url) {
+    return /^https?:\/\//i.test(url || "") ? url : null;
   }
 
   function countLessons(slots) {
@@ -198,47 +203,49 @@
 
     var body = el("div", "lesson__body");
 
-    if (lesson) {
-      body.appendChild(el("div", "lesson__subject", lesson.subject));
-      body.appendChild(el("span", "lesson__kind", lesson.kind));
-      var meta = el("div", "lesson__meta");
-      if (lesson.teacher) {
-        var t = el("span", null, lesson.teacher);
-        meta.appendChild(t);
-      }
-      var room = el("span", null);
-      room.appendChild(document.createTextNode("ауд. "));
-      var rb = el("b", null, lesson.room || "—");
-      room.appendChild(rb);
-      meta.appendChild(room);
-      body.appendChild(meta);
-      if (lesson.link) {
-        var a = el("a", "lesson__link", "Подключиться онлайн");
-        a.href = lesson.link;
-        a.target = "_blank";
-        a.rel = "noopener";
-        body.appendChild(a);
-      }
-    } else {
-      /* несколько пар в одном слоте — раскрываем списком */
-      slot.lessons.forEach(function (l) {
-        var line = el("div", "lesson__subject", l.subject);
-        body.appendChild(line);
+      if (lesson) {
+        body.appendChild(el("div", "lesson__subject", lesson.subject));
+        body.appendChild(el("span", "lesson__kind", lesson.kind));
         var meta = el("div", "lesson__meta");
-        if (l.kind) meta.appendChild(el("span", null, l.kind));
-        if (l.teacher) meta.appendChild(el("span", null, l.teacher));
-        meta.appendChild(el("span", null, "ауд. " + (l.room || "—")));
-        body.appendChild(meta);
-        if (l.link) {
-          var a2 = el("a", "lesson__link", "Онлайн");
-          a2.href = l.link;
-          a2.target = "_blank";
-          a2.rel = "noopener";
-          body.appendChild(a2);
+        if (lesson.teacher) {
+          var t = el("span", null, lesson.teacher);
+          meta.appendChild(t);
         }
-        body.appendChild(el("div", null, "\u00a0"));
-      });
-    }
+        var room = el("span", null);
+        room.appendChild(document.createTextNode("ауд. "));
+        var rb = el("b", null, lesson.room || "—");
+        room.appendChild(rb);
+        meta.appendChild(room);
+        body.appendChild(meta);
+        var href = safeHref(lesson.link);
+        if (href) {
+          var a = el("a", "lesson__link", "Подключиться онлайн");
+          a.href = href;
+          a.target = "_blank";
+          a.rel = "noopener";
+          body.appendChild(a);
+        }
+      } else {
+        /* несколько пар в одном слоте — раскрываем списком */
+        slot.lessons.forEach(function (l) {
+          var line = el("div", "lesson__subject", l.subject);
+          body.appendChild(line);
+          var meta = el("div", "lesson__meta");
+          if (l.kind) meta.appendChild(el("span", null, l.kind));
+          if (l.teacher) meta.appendChild(el("span", null, l.teacher));
+          meta.appendChild(el("span", null, "ауд. " + (l.room || "—")));
+          body.appendChild(meta);
+          var href2 = safeHref(l.link);
+          if (href2) {
+            var a2 = el("a", "lesson__link", "Онлайн");
+            a2.href = href2;
+            a2.target = "_blank";
+            a2.rel = "noopener";
+            body.appendChild(a2);
+          }
+          body.appendChild(el("div", null, "\u00a0"));
+        });
+      }
 
     card.appendChild(body);
     return card;
@@ -312,7 +319,7 @@
     title.appendChild(nav);
     content.appendChild(title);
 
-    for (var i = 0; i < 5; i++) {
+    for (var i = 0; i < 6; i++) {
       var iso = mskShiftISO(monday, i);
       var slots = lessonsForDate(iso);
       var block = glassCard("day-block");
@@ -429,8 +436,26 @@
 
   /* ---------- пикер курса и группы ---------- */
 
+  function renderNoData(message) {
+    content.innerHTML = "";
+    var card = glassCard("empty-card");
+    card.appendChild(el("div", "big", message || "Расписание недоступно"));
+    var retry = el("button", "nav-btn", "↻");
+    retry.style.width = "auto";
+    retry.style.padding = "8px 18px";
+    retry.style.borderRadius = "999px";
+    retry.addEventListener("click", load);
+    card.appendChild(retry);
+    content.appendChild(card);
+  }
+
   function renderPicker() {
     content.innerHTML = "";
+    if (!state.data || !state.data.courses ||
+        !Object.keys(state.data.courses).length) {
+      renderNoData("Расписание пока недоступно");
+      return;
+    }
     var card = glassCard("picker");
     var pickingCourse = !state.course || !state.data.courses[state.course];
 
@@ -447,7 +472,7 @@
           haptic("light");
           state.group = gid;
           saveGroup();
-          state.view = "day";
+          setView("day");
           updateHeader();
           render();
         });
@@ -460,7 +485,7 @@
       back.addEventListener("click", function () {
         state.course = null;
         state.group = null;
-        renderPicker();
+        render();
       });
       card.appendChild(back);
       content.appendChild(card);
@@ -478,7 +503,7 @@
         haptic("light");
         state.course = course;
         state.group = null;
-        renderPicker();
+        render();
       });
       courseRow.appendChild(btn);
     });
@@ -494,7 +519,7 @@
           haptic("light");
           state.group = gid;
           saveGroup();
-          state.view = "day";
+          setView("day");
           updateHeader();
           render();
         });
@@ -507,18 +532,27 @@
 
   function course_title_short(course) {
     var c = state.data.courses[course];
-    return c.semester ? c.semester.split("семестр")[0].trim() + " сем." : "";
+    var parts = c.semester ? c.semester.split("семестр") : [];
+    return parts.length > 1 ? parts[0].trim() + " сем." : (c.semester || "");
+  }
+
+  function syncTabs() {
+    document.querySelectorAll(".tab").forEach(function (b) {
+      b.classList.toggle("is-active", b.dataset.tab === state.view);
+    });
+  }
+
+  function setView(view) {
+    state.view = view;
+    syncTabs();
   }
 
   document.querySelectorAll(".tab").forEach(function (btn) {
     btn.addEventListener("click", function () {
       if (btn.classList.contains("is-active")) return;
+      if (!state.data) return; // данные ещё грузятся — рендерить нечего
       haptic("light");
-      document.querySelectorAll(".tab").forEach(function (b) {
-        b.classList.remove("is-active");
-      });
-      btn.classList.add("is-active");
-      state.view = btn.dataset.tab;
+      setView(btn.dataset.tab);
       render();
     });
   });
@@ -541,7 +575,7 @@
     groupChip.addEventListener("click", function () {
       if (!state.data) return;
       haptic("light");
-      state.view = (state.view === "picker") ? "day" : "picker";
+      setView((state.view === "picker") ? "day" : "picker");
       render();
     });
   }
@@ -549,15 +583,11 @@
   if (tg && tg.BackButton) {
     tg.BackButton.onClick(function () {
       haptic("light");
-      if (state.view === "picker") {
-        state.view = "day";
-      } else {
-        state.view = "day";
+      if (!state.data) return;
+      if (state.view !== "picker") {
         state.selected = mskTodayISO();
-        document.querySelectorAll(".tab").forEach(function (b) {
-          b.classList.toggle("is-active", b.dataset.tab === "day");
-        });
       }
+      setView("day");
       render();
     });
   }
@@ -584,20 +614,26 @@
     function tryNext() {
       if (attempt >= urls.length) { showError(); return; }
       var url = urls[attempt++];
-      fetch(url, { cache: "no-store" })
+      var ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+      var timer = ctrl ? setTimeout(function () { ctrl.abort(); }, 15000) : null;
+      fetch(url, { cache: "no-store", signal: ctrl ? ctrl.signal : undefined })
         .then(function (r) {
           if (!r.ok) throw new Error(r.status);
           return r.json();
         })
         .then(function (json) {
+          if (timer) clearTimeout(timer);
           state.data = json;
           if (state.data.courses && !currentGroup()) {
-            state.view = "picker";
+            setView("picker");
           }
           updateHeader();
           render();
         })
-        .catch(tryNext);
+        .catch(function (err) {
+          if (timer) clearTimeout(timer);
+          tryNext();
+        });
     }
     tryNext();
   }
@@ -613,12 +649,10 @@
       sub.textContent = "Выберите группу";
     }
     if (footer) {
-      var gen = state.data.generated_at || "";
-      if (gen) {
-        var m = gen.match(/(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
-        footer.textContent = m ? ("расписание обновлено: " + m[3] + "." + m[2] +
-          "." + m[1] + " в " + m[4] + ":" + m[5] + " МСК") : "";
-      }
+      var gen = (state.data && state.data.generated_at) || "";
+      var m = gen.match(/(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+      footer.textContent = m ? ("расписание обновлено: " + m[3] + "." + m[2] +
+        "." + m[1] + " в " + m[4] + ":" + m[5] + " МСК") : "";
     }
   }
 
