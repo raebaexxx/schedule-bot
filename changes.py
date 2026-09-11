@@ -2,7 +2,8 @@
 
 import html
 import json
-import re
+import os
+import tempfile
 from datetime import date
 from pathlib import Path
 
@@ -82,13 +83,21 @@ def compute_changes(old: dict, new: dict) -> dict[str, list[str]]:
 
 
 def save_pending(changes: dict[str, list[str]]) -> bool:
-    """Сохраняет очередь уведомлений. False — изменений нет."""
+    """Сохраняет очередь уведомлений (атомарно). False — изменений нет."""
     if not changes:
         return False
-    DATA_DIR.mkdir(exist_ok=True)
+    PENDING_FILE.parent.mkdir(parents=True, exist_ok=True)
     payload = {"generated": date.today().isoformat(), "changes": changes}
-    PENDING_FILE.write_text(json.dumps(payload, ensure_ascii=False, indent=1),
-                            encoding="utf-8")
+    # tmp-файл рядом с целью: os.replace атомарен только в рамках одной ФС
+    fd, tmp = tempfile.mkstemp(dir=str(PENDING_FILE.parent), suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=1)
+        os.replace(tmp, PENDING_FILE)
+    except OSError:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise
     return True
 
 

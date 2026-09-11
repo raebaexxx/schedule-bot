@@ -7,6 +7,7 @@ import sys
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from aiogram.types import ErrorEvent
 
 from config import BOT_TOKEN_ALL, WEBAPP_URL
 from handlers_all import router
@@ -42,6 +43,26 @@ async def main() -> None:
     dp = Dispatcher()
     dp.include_router(router)
     dp.include_router(admin_router)
+
+    @dp.errors()
+    async def on_error(event: ErrorEvent) -> bool:
+        logging.getLogger("bot_all.errors").error(
+            "необработанное исключение в %s",
+            type(event.exception).__name__,
+            exc_info=event.exception,
+        )
+        try:
+            u = event.update
+            cq = u.callback_query
+            msg = u.message or u.edited_message or (cq.message if cq else None)
+            if msg is not None:
+                await msg.answer("⚠️ Произошла ошибка. Попробуйте ещё раз позже.")
+            elif cq is not None:
+                await cq.answer("⚠️ Ошибка, попробуйте позже", show_alert=True)
+        except Exception:  # noqa: BLE001
+            logging.getLogger("bot_all.errors").warning(
+                "не удалось сообщить об ошибке пользователю", exc_info=True)
+        return True
 
     if WEBAPP_URL:
         try:

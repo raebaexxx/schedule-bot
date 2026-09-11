@@ -41,6 +41,16 @@ storage = SelectionStorage()
 DAY_KEYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday"]
 
 
+def _date_year(month: int) -> int:
+    """Учебный год для месяца: сен–дек — год начала, янв–июн — следующий.
+
+    Вычисляется от текущей даты (МСК), без захардкоженных лет.
+    """
+    today = now_iso().date()
+    start_year = today.year if today.month >= 8 else today.year - 1
+    return start_year if month >= 7 else start_year + 1
+
+
 def get_ctx(chat_id: int) -> tuple[str, str]:
     sel = storage.get(chat_id)
     return sel.get("course"), sel.get("group")
@@ -101,8 +111,15 @@ def groups_keyboard(course: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def cb_chat_id(callback: CallbackQuery) -> int | None:
+    """chat_id из сообщения колбэка; None — сообщение недоступно (aiogram 3)."""
+    return callback.message.chat.id if callback.message is not None else None
+
+
 async def safe_edit(callback: CallbackQuery, text: str,
                     keyboard: InlineKeyboardMarkup) -> None:
+    if callback.message is None:
+        return
     try:
         await callback.message.edit_text(text, reply_markup=keyboard)
     except TelegramBadRequest as e:
@@ -114,11 +131,6 @@ def menu_text(course: str, gid: str) -> str:
     return (f"<b>Расписание ЕТИ</b>\n{course_title(course)}\n"
             f"Группа: <b>{group_display(course, gid)}</b>\n\n"
             "Выбери, что посмотреть:")
-
-
-def require_group(func):
-    """Декоратор: без выбранной группы — показать выбор."""
-    return func
 
 
 async def ensure_selected(message: Message) -> tuple[str, str] | None:
@@ -227,8 +239,7 @@ async def cmd_date(message: Message, **kwargs) -> None:
         return
     try:
         dd, mm = (int(x) for x in parts[1].split(".")[:2])
-        year = 2026 if mm >= 7 else 2027
-        d = date(year, mm, dd)
+        d = date(_date_year(mm), mm, dd)
     except ValueError:
         await message.answer("Не понял дату. Формат: /date DD.MM")
         return
@@ -323,9 +334,23 @@ async def cmd_settings(message: Message, **kwargs) -> None:
                          reply_markup=settings_keyboard(user.get("digest_enabled", False)))
 
 
+def get_valid_ctx(chat_id: int | None) -> tuple[str, str] | None:
+    """Валидная (course, gid) из storage или None (нет выбора / устарела)."""
+    if chat_id is None:
+        return None
+    course, gid = get_ctx(chat_id)
+    if course not in COURSES or gid not in group_ids(course):
+        return None
+    return course, gid
+
+
 @router.callback_query(F.data == "settings")
 async def cb_settings(callback: CallbackQuery, **kwargs) -> None:
-    user = storage.get_or_create(callback.message.chat.id)
+    chat_id = cb_chat_id(callback)
+    if chat_id is None:
+        await callback.answer()
+        return
+    user = storage.get_or_create(chat_id)
     await safe_edit(callback, settings_text(user),
                     settings_keyboard(user.get("digest_enabled", False)))
     await callback.answer()
@@ -333,14 +358,22 @@ async def cb_settings(callback: CallbackQuery, **kwargs) -> None:
 
 @router.callback_query(F.data == "notify:on")
 async def cb_notify_on(callback: CallbackQuery, **kwargs) -> None:
-    user = storage.set_digest_enabled(callback.message.chat.id, True)
+    chat_id = cb_chat_id(callback)
+    if chat_id is None:
+        await callback.answer()
+        return
+    user = storage.set_digest_enabled(chat_id, True)
     await safe_edit(callback, settings_text(user), settings_keyboard(True))
     await callback.answer("Включено")
 
 
 @router.callback_query(F.data == "notify:off")
 async def cb_notify_off(callback: CallbackQuery, **kwargs) -> None:
-    user = storage.set_digest_enabled(callback.message.chat.id, False)
+    chat_id = cb_chat_id(callback)
+    if chat_id is None:
+        await callback.answer()
+        return
+    user = storage.set_digest_enabled(chat_id, False)
     await safe_edit(callback, settings_text(user), settings_keyboard(False))
     await callback.answer("Выключено")
 
@@ -348,7 +381,10 @@ async def cb_notify_off(callback: CallbackQuery, **kwargs) -> None:
 @router.callback_query(F.data.startswith("time:"))
 async def cb_time(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
     value = callback.data.split(":", 1)[1]
-    chat_id = callback.message.chat.id
+    chat_id = cb_chat_id(callback)
+    if chat_id is None:
+        await callback.answer()
+        return
     if value == "custom":
         await state.set_state(SettingsStates.waiting_time)
         await callback.message.answer(
@@ -406,66 +442,67 @@ async def cb_groups_menu(callback: CallbackQuery, **kwargs) -> None:
 @router.callback_query(F.data.startswith("pick:"))
 async def cb_pick(callback: CallbackQuery, **kwargs) -> None:
     _, course, gid = callback.data.split(":", 2)
-    if course not in COURSES or gid not in group_ids(course):
+    chat_id = cb_chat_id(callback)
+    if course not in COURSES or gid not in group_ids(course) or chat_id is None:
         await callback.answer()
         return
-    storage.set_group(callback.message.chat.id, course, gid)
-    await callback.message.edit_text(
-        f"Группа: <b>{group_display(course, gid)}</b>\n\n" + menu_text(course, gid),
-        reply_markup=main_menu_keyboard(course, gid))
+    storage.set_group(chat_id, course, gid)
+    await safe_edit(callback,
+                    f"Группа: <b>{group_display(course, gid)}</b>\n\n" + menu_text(course, gid),
+                    main_menu_keyboard(course, gid))
     await callback.answer(f"{group_display(course, gid)} выбрана")
 
 
 @router.callback_query(F.data == "today")
 async def cb_today(callback: CallbackQuery, **kwargs) -> None:
-    course, gid = get_ctx(callback.message.chat.id)
-    if not course:
+    ctx = get_valid_ctx(cb_chat_id(callback))
+    if not ctx:
         await callback.answer("Сначала выбери группу", show_alert=True)
         return
-    await safe_edit(callback, format_day_all(group_days(course, gid), now_iso().date().isoformat()),
+    await safe_edit(callback, format_day_all(group_days(*ctx), now_iso().date().isoformat()),
                     day_keyboard(now_iso().date()))
     await callback.answer()
 
 
 @router.callback_query(F.data == "tomorrow")
 async def cb_tomorrow(callback: CallbackQuery, **kwargs) -> None:
-    course, gid = get_ctx(callback.message.chat.id)
-    if not course:
+    ctx = get_valid_ctx(cb_chat_id(callback))
+    if not ctx:
         await callback.answer("Сначала выбери группу", show_alert=True)
         return
     d = now_iso().date() + timedelta(days=1)
-    await safe_edit(callback, format_day_all(group_days(course, gid), d.isoformat()),
+    await safe_edit(callback, format_day_all(group_days(*ctx), d.isoformat()),
                     day_keyboard(d))
     await callback.answer()
 
 
 @router.callback_query(F.data == "week")
 async def cb_week(callback: CallbackQuery, **kwargs) -> None:
-    course, gid = get_ctx(callback.message.chat.id)
-    if not course:
+    ctx = get_valid_ctx(cb_chat_id(callback))
+    if not ctx:
         await callback.answer("Сначала выбери группу", show_alert=True)
         return
     monday = monday_of_iso(now_iso().date())
-    await safe_edit(callback, format_week_all(group_days(course, gid), monday.isoformat()),
+    await safe_edit(callback, format_week_all(group_days(*ctx), monday.isoformat()),
                     week_keyboard(monday))
     await callback.answer()
 
 
 @router.callback_query(F.data == "menu")
 async def cb_menu(callback: CallbackQuery, **kwargs) -> None:
-    course, gid = get_ctx(callback.message.chat.id)
-    if not course:
+    ctx = get_valid_ctx(cb_chat_id(callback))
+    if not ctx:
         await callback.answer()
         return
-    await safe_edit(callback, menu_text(course, gid),
-                    main_menu_keyboard(course, gid))
+    await safe_edit(callback, menu_text(*ctx),
+                    main_menu_keyboard(*ctx))
     await callback.answer()
 
 
 @router.callback_query(F.data.startswith("daynav:"))
 async def cb_daynav(callback: CallbackQuery, **kwargs) -> None:
-    course, gid = get_ctx(callback.message.chat.id)
-    if not course:
+    ctx = get_valid_ctx(cb_chat_id(callback))
+    if not ctx:
         await callback.answer()
         return
     try:
@@ -473,15 +510,15 @@ async def cb_daynav(callback: CallbackQuery, **kwargs) -> None:
     except ValueError:
         await callback.answer()
         return
-    await safe_edit(callback, format_day_all(group_days(course, gid), d.isoformat()),
+    await safe_edit(callback, format_day_all(group_days(*ctx), d.isoformat()),
                     day_keyboard(d))
     await callback.answer()
 
 
 @router.callback_query(F.data.startswith("weeknav:"))
 async def cb_weeknav(callback: CallbackQuery, **kwargs) -> None:
-    course, gid = get_ctx(callback.message.chat.id)
-    if not course:
+    ctx = get_valid_ctx(cb_chat_id(callback))
+    if not ctx:
         await callback.answer()
         return
     try:
@@ -489,6 +526,6 @@ async def cb_weeknav(callback: CallbackQuery, **kwargs) -> None:
     except ValueError:
         await callback.answer()
         return
-    await safe_edit(callback, format_week_all(group_days(course, gid), monday.isoformat()),
+    await safe_edit(callback, format_week_all(group_days(*ctx), monday.isoformat()),
                     week_keyboard(monday))
     await callback.answer()

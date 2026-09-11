@@ -2,9 +2,10 @@
 .venv/
 __pycache__/
 *.pyc
-bot.log
-bot.log.*
+*.log
+*.log.*
 data/users.json
 data/pending_changes.json
 data/users_all.json
+data/incoming_pdf/
 CHAT_EXPORT.md

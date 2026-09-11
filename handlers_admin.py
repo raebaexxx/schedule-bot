@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 
 from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest, TelegramRetryAfter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (
@@ -39,6 +40,11 @@ DAY_RU = {"monday": "ПН", "tuesday": "ВТ", "wednesday": "СР",
 
 def is_admin(user_id: int | None) -> bool:
     return user_id is not None and user_id in ADMIN_IDS
+
+
+def cb_msg(callback: CallbackQuery):
+    """Сообщение колбэка или None (недоступно) — guard для edit/delete."""
+    return callback.message
 
 
 def admin_guard(func):
@@ -78,10 +84,11 @@ async def cmd_admin(message: Message, **kwargs) -> None:
 @router.callback_query(F.data == "adm:close")
 @admin_guard
 async def cb_close(callback: CallbackQuery, **kwargs) -> None:
-    try:
-        await callback.message.delete()
-    except Exception:  # noqa: BLE001
-        pass
+    if callback.message is not None:
+        try:
+            await callback.message.delete()
+        except Exception:  # noqa: BLE001
+            pass
     await callback.answer()
 
 
@@ -142,6 +149,9 @@ def _stats_text(storage: SelectionStorage) -> str:
 @router.callback_query(F.data == "adm:stats")
 @admin_guard
 async def cb_stats(callback: CallbackQuery, **kwargs) -> None:
+    if callback.message is None:
+        await callback.answer()
+        return
     try:
         await callback.message.edit_text(_stats_text(storage),
                                          reply_markup=admin_menu())
@@ -194,6 +204,9 @@ def uptime_seconds() -> float:
 @router.callback_query(F.data == "adm:status")
 @admin_guard
 async def cb_status(callback: CallbackQuery, **kwargs) -> None:
+    if callback.message is None:
+        await callback.answer()
+        return
     try:
         await callback.message.edit_text(_status_text(storage),
                                          reply_markup=admin_menu())
@@ -224,6 +237,9 @@ def audience_keyboard() -> InlineKeyboardMarkup:
 @router.callback_query(F.data == "adm:broadcast")
 @admin_guard
 async def cb_broadcast(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+    if callback.message is None:
+        await callback.answer()
+        return
     await state.set_state(BroadcastStates.audience)
     await callback.message.edit_text(
         "Кому отправить?", reply_markup=audience_keyboard())
@@ -233,6 +249,9 @@ async def cb_broadcast(callback: CallbackQuery, state: FSMContext, **kwargs) -> 
 @router.callback_query(BroadcastStates.audience, F.data.startswith("aud:"))
 @admin_guard
 async def cb_audience(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+    if callback.message is None:
+        await callback.answer()
+        return
     data = callback.data.split(":", 1)[1]
     if data == "all":
         audience = {"all": True}
@@ -269,6 +288,9 @@ async def msg_broadcast_text(message: Message, state: FSMContext, **kwargs) -> N
 @admin_guard
 async def cb_broadcast_go(callback: CallbackQuery, state: FSMContext,
                           **kwargs) -> None:
+    if callback.message is None:
+        await callback.answer()
+        return
     bot = callback.bot
     data = await state.get_data()
     await state.clear()
@@ -276,17 +298,30 @@ async def cb_broadcast_go(callback: CallbackQuery, state: FSMContext,
     users = storage.all_users()
     targets = []
     for cid, u in users.items():
-        if aud.get("all"):
-            targets.append(cid)
-        elif u.get("course") == aud.get("course"):
+        if aud.get("all") or u.get("course") == aud.get("course"):
             targets.append(cid)
     ok = err = 0
     for cid in targets:
         try:
             await bot.send_message(int(cid), text)
             ok += 1
+        except TelegramRetryAfter as e:
+            await asyncio.sleep(e.retry_after + 1)
+            try:
+                await bot.send_message(int(cid), text)
+                ok += 1
+            except Exception:  # noqa: BLE001
+                err += 1
+        except TelegramBadRequest:
+            # чаще всего невалидный HTML — повторяем без разметки
+            try:
+                await bot.send_message(int(cid), text, parse_mode=None)
+                ok += 1
+            except Exception:  # noqa: BLE001
+                err += 1
         except Exception:  # noqa: BLE001
             err += 1
+        await asyncio.sleep(0.05)  # ~20 сообщ/с — запас к лимитам Telegram
     await callback.message.edit_text(
         f"Рассылка завершена: доставлено <b>{ok}</b>, ошибок {err}.",
         reply_markup=admin_menu())
@@ -297,10 +332,11 @@ async def cb_broadcast_go(callback: CallbackQuery, state: FSMContext,
 @admin_guard
 async def cb_cancel(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
     await state.clear()
-    try:
-        await callback.message.edit_text("Отменено.", reply_markup=admin_menu())
-    except Exception:  # noqa: BLE001
-        pass
+    if callback.message is not None:
+        try:
+            await callback.message.edit_text("Отменено.", reply_markup=admin_menu())
+        except Exception:  # noqa: BLE001
+            pass
     await callback.answer()
 
 
@@ -313,32 +349,57 @@ class PdfStates(StatesGroup):
 @router.callback_query(F.data == "adm:pdf")
 @admin_guard
 async def cb_pdf(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+    if callback.message is None:
+        await callback.answer()
+        return
     await state.set_state(PdfStates.waiting_files)
+    await state.update_data(files=[])
     kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Готово — запустить парсер",
+                              callback_data="adm:parse")],
         [InlineKeyboardButton(text="Отмена", callback_data="adm:cancel")]])
     await callback.message.edit_text(
         "Пришли PDF-файлы расписания (1–4 файла, по одному на курс).\n"
         "Файлы: <code>{N}curs{год}.pdf</code> — курс распознаётся из имени.\n"
-        "После загрузки запущу парсер, обновлю JSON и разошлю изменения.",
+        "Затем нажми «Готово» — запущу парсер, обновлю JSON и разошлю изменения.",
         reply_markup=kb)
     await callback.answer()
+
+
+MAX_PDF_SIZE = 20 * 1024 * 1024  # бот Telegram не может скачать больше 20 МБ
 
 
 @router.message(PdfStates.waiting_files, F.document)
 @admin_guard
 async def msg_pdf_files(message: Message, state: FSMContext,
                         **kwargs) -> None:
-    bot = message.bot
     doc = message.document
     if not doc.file_name or not doc.file_name.lower().endswith(".pdf"):
         await message.answer("Это не PDF. Присылай .pdf файлы.")
         return
+    if doc.file_size and doc.file_size > MAX_PDF_SIZE:
+        await message.answer("Файл больше 20 МБ — Telegram не даст его скачать.")
+        return
+    # санитизация: только имя файла, без путей
+    name = Path(doc.file_name).name
+    if not name or name in (".", ".."):
+        await message.answer("Некорректное имя файла.")
+        return
     PDF_DIR.mkdir(parents=True, exist_ok=True)
-    target = PDF_DIR / doc.file_name
-    await bot.download(doc, destination=target)
-    await state.clear()
+    target = PDF_DIR / name
+    await message.bot.download(doc, destination=target)
+    data = await state.get_data()
+    files: list[str] = data.get("files", [])
+    if name not in files:
+        files.append(name)
+    await state.update_data(files=files)
+    await message.answer(
+        f"📥 {html.escape(name)} сохранён (всего {len(files)}). "
+        "Отправь ещё или нажми «Готово».")
 
-    status = await message.answer("⏳ Запускаю парсер…")
+
+async def _run_parser() -> tuple[int, str]:
+    """Запускает parse_all.py по data/incoming_pdf. Возвращает (код, вывод)."""
     proc = await asyncio.create_subprocess_exec(
         sys.executable, str(PARSE_SCRIPT), str(PDF_DIR),
         cwd=str(ROOT),
@@ -349,19 +410,36 @@ async def msg_pdf_files(message: Message, state: FSMContext,
         out, _ = await asyncio.wait_for(proc.communicate(), timeout=300)
     except TimeoutError:
         proc.kill()
-        await status.edit_text("❌ Парсер не уложился в 5 минут, убит.")
+        await proc.wait()
+        return 124, "Парсер не уложился в 5 минут, убит."
+    return proc.returncode or 0, out.decode("utf-8", errors="replace")
+
+
+@router.callback_query(F.data == "adm:parse")
+@admin_guard
+async def cb_parse(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+    if callback.message is None:
+        await callback.answer()
         return
-    output = out.decode("utf-8", errors="replace")
-    tail = "\n".join(output.strip().splitlines()[-25:])
-    if proc.returncode != 0:
+    data = await state.get_data()
+    files: list[str] = data.get("files", [])
+    await state.clear()
+    if not files:
+        await callback.answer("Сначала пришли PDF-файлы", show_alert=True)
+        return
+    await callback.answer()
+    status = await callback.message.edit_text("⏳ Запускаю парсер…")
+    code, output = await _run_parser()
+    if code != 0:
+        tail = "\n".join(output.strip().splitlines()[-25:]) or output
         await status.edit_text(
-            f"❌ Парсер упал (код {proc.returncode}):\n"
+            f"❌ Парсер упал (код {code}):\n"
             f"<pre>{html.escape(tail[-2000:])}</pre>")
         return
     summary = _parse_summary(output)
     # JSON уже перезаписан парсером; рассылаем изменения
     from notify import notify_changes
-    sent = await notify_changes(bot, storage)
+    sent = await notify_changes(callback.bot, storage)
     await status.edit_text(
         f"✅ Расписание обновлено.\n{summary}\n"
         f"Уведомлений доставлено: {sent}.",

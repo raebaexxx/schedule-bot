@@ -63,19 +63,27 @@ class SelectionStorage:
                       first_name: str | None = None,
                       username: str | None = None) -> dict:
         data = self._load()
-        user = data.get(str(chat_id))
+        cid = str(chat_id)
+        user = data.get(cid)
         if user is None:
             user = {"time": "07:00", "digest_enabled": True,
                     "last_sent": None, "first_name": first_name or "",
                     "username": username or ""}
-            data[str(chat_id)] = user
+            data[cid] = user
             self._save(data)
         else:
             # обновляем профиль, если изменился
+            changed = False
             if first_name and user.get("first_name") != first_name:
                 user["first_name"] = first_name
+                changed = True
             if username is not None and user.get("username") != username:
                 user["username"] = username
+                changed = True
+            if "time" not in user or "digest_enabled" not in user:
+                changed = True
+            if changed:
+                self._save(data)
         user.setdefault("time", "07:00")
         user.setdefault("digest_enabled", True)
         return user

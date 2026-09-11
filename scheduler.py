@@ -2,8 +2,10 @@
 
 import asyncio
 import logging
+from datetime import date as _date, datetime
 
 from aiogram import Bot
+from aiogram.exceptions import TelegramRetryAfter
 
 from formatter import digest_text, now
 from schedule_all import group_days
@@ -14,13 +16,12 @@ logger = logging.getLogger("bot_all.scheduler")
 TIME_FMT = "%H:%M"
 
 
-def should_send(moscow_now, user: dict) -> bool:
+def should_send(moscow_now: datetime, user: dict) -> bool:
     """Пора ли слать дайджест этому пользователю прямо сейчас."""
     if not user.get("digest_enabled", False):
         return False
     try:
-        target = __import__("datetime").datetime.strptime(
-            user.get("time", "07:00"), TIME_FMT).time()
+        target = datetime.strptime(user.get("time", "07:00"), TIME_FMT).time()
     except ValueError:
         return False
     if moscow_now.time() < target:
@@ -57,7 +58,6 @@ class DigestScheduler:
 
     async def tick(self) -> None:
         """Один проход: отправить дайджест тем, кому пора."""
-        from datetime import datetime
         moscow_now = now()
         today = moscow_now.date()
         for chat_id, user in self.storage.digest_users().items():
@@ -69,9 +69,8 @@ class DigestScheduler:
             else:
                 logger.warning("дайджест для %s не отправлен", chat_id)
 
-    async def send_digest(self, chat_id: int, d) -> bool:
+    async def send_digest(self, chat_id: int, d: _date) -> bool:
         """Отправляет дайджест. False — пользователь заблокировал бота."""
-        from datetime import date as _date
         sel = self.storage.get(chat_id)
         course, gid = sel.get("course"), sel.get("group")
         if not course or not gid:
@@ -86,6 +85,11 @@ class DigestScheduler:
         try:
             await self.bot.send_message(chat_id, text)
             return True
+        except TelegramRetryAfter as e:
+            logger.warning("дайджест %s отложен: flood control %s с",
+                           chat_id, e.retry_after)
+            await asyncio.sleep(min(e.retry_after + 1, 60))
+            return False  # повторим на следующем тике
         except Exception as e:  # noqa: BLE001
             logger.warning("дайджест %s не доставлен: %s: %s",
                            chat_id, type(e).__name__, e)
