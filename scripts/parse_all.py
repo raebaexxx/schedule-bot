@@ -545,28 +545,7 @@ def parse_course_pdf(pdf_path: Path) -> tuple[str, dict[str, dict]]:
             lesson["subject"] = re.sub(r"\s+", " ", subject).strip()
             # хирургия склеек: Excel-overflow приносит в subject хвосты чужих
             # ячеек (повторный маркер типа, номера вирт-аудиторий, подпись)
-            subj2 = lesson["subject"]
-            # 1) обрезать всё после ВТОРОГО маркера типа («… 5 лек., пр. …»)
-            for m in re.finditer(r"(лек\., пр\.|лек\.|пр\.|лаб\.)", subj2):
-                if m.start() > 0:
-                    subj2 = subj2[:m.start()]
-                    break
-            # 2) хвостовые ФИО (фамилия + инициалы) из чужой ячейки
-            subj2 = re.sub(
-                r"\s+[А-ЯЁ][а-яё]+\s+[А-ЯЁ]\.[А-ЯЁ]\.?\s*$", "", subj2)
-            subj2 = re.sub(r"\s+[А-ЯЁ]{2,}\s+[А-ЯЁ]\.[А-ЯЁ]\.?\s*$", "", subj2)
-            # 3) одиночные цифры 3/5 (номера вирт-аудиторий) — только по краям
-            #    subject: утечка приходит с края соседней колонки; в середине
-            #    цифры не трогаем («Часть 3», «Модуль 5»)
-            if re.fullmatch(r"\s*[35]\s*", subj2):
-                subj2 = ""
-            else:
-                subj2 = re.sub(r"^\s*(?<![\w.])[35](?![\w.])\s+", "", subj2)
-                subj2 = re.sub(r"\s+(?<![\w.])[35](?![\w.])\s*$", "", subj2)
-            # 4) повторы одиночных слов («материального производства» дубль
-            #    не трогаем — безопаснее оставить)
-            subj2 = re.sub(r"\s+", " ", subj2).strip(" ,")
-            lesson["subject"] = subj2
+            lesson["subject"] = clean_subject(lesson["subject"])
             lesson.pop("_teacher_span", None)
             if not lesson["subject"]:
                 continue
@@ -593,6 +572,31 @@ def parse_course_pdf(pdf_path: Path) -> tuple[str, dict[str, dict]]:
 
 
 # ------------------------------------------------------- метод B: контроль
+
+def clean_subject(subject: str) -> str:
+    """Чистка склеек в subject: хвосты чужих ячеек (overflow Excel).
+
+    1) обрезать всё после ВТОРОГО маркера типа («… 5 лек., пр. …»);
+    2) хвостовые ФИО (фамилия + инициалы) из чужой ячейки;
+    3) одиночные цифры 3/5 (номера вирт-аудиторий) — только по краям:
+       утечка приходит с края соседней колонки, в середине цифры
+       легитимны («Часть 3», «Модуль 5»);
+    4) нормализация пробелов.
+    """
+    subj = subject
+    for m in re.finditer(r"(лек\., пр\.|лек\.|пр\.|лаб\.)", subj):
+        if m.start() > 0:
+            subj = subj[:m.start()]
+            break
+    subj = re.sub(r"\s+[А-ЯЁ][а-яё]+\s+[А-ЯЁ]\.[А-ЯЁ]\.?\s*$", "", subj)
+    subj = re.sub(r"\s+[А-ЯЁ]{2,}\s+[А-ЯЁ]\.[А-ЯЁ]\.?\s*$", "", subj)
+    if re.fullmatch(r"\s*[35]\s*", subj):
+        subj = ""
+    else:
+        subj = re.sub(r"^\s*(?<![\w.])[35](?![\w.])\s+", "", subj)
+        subj = re.sub(r"\s+(?<![\w.])[35](?![\w.])\s*$", "", subj)
+    return re.sub(r"\s+", " ", subj).strip(" ,")
+
 
 def _cut_line(ln: str, left: int, right: int) -> str:
     """Срезает строку по пробельным зазорам, ближайшим к границам колонки —

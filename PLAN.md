@@ -13,10 +13,13 @@
 
 | Бот | Точка входа | Токен | Что показывает |
 |---|---|---|---|
-| Личный (группа БА-231) | `bot.py` | `BOT_TOKEN` | расписание группы БА-231, 7 семестр 2026/2027 |
 | **Общий** (@StankinE_Schedule_Bot) | `bot_all.py` | `BOT_TOKEN_ALL` | **все 4 курса, 17 групп** (вкл. ускоренные «(у)») |
 
-Пользователь проекта — студент БА-231. Общий бот создан позже по запросу
+Личный бот группы БА-231 (`bot.py`, `handlers.py`, `formatter_all.py`,
+`schedule_data.py`) удалён из репозитория 02.09.2026 — вся функциональность
+перенесена в общий бот. В git-истории старые файлы ещё есть.
+
+Пользователь проекта — студент БА-231. Общий бот создан по запросу
 «расписание для всей группы в СтанкинЕ».
 
 ## 2. Текущее состояние (деплой)
@@ -51,35 +54,38 @@
 
 ## 3. Структура репозитория
 
-Один репозиторий (github.com/raebaexxx/schedule-bot, public), на сервере два
-клона. Старые файлы личного бота не трогались при добавлении общего.
+Один репозиторий (github.com/raebaexxx/schedule-bot, public), на сервере
+клон /opt/schedule-all. Старые файлы личного бота удалены.
 
 ```
-bot.py / bot_all.py         точки входа; setMyCommands, setChatMenuButton,
-                            логирование (RotatingFileHandler bot*.log),
-                            dp.errors -> сообщение юзеру
-handlers.py / handlers_all.py   команды, inline-меню, навигация ‹ ›,
-                            /settings (личный), выбор курса/группы (общий)
-formatter.py / formatter_all.py  рендер с фильтрацией по датам
-scheduler.py                asyncio-планировщик утреннего дайджеста (личный бот)
-notify.py                   рассылка уведомлений об изменениях (общий бот)
-changes.py                  дифф старый/новый schedule_all.json + очередь
-storage.py                  подписки дайджеста (data/users.json) и выбор
-                            групп (data/users_all.json), атомарная JSON-запись
-schedule_all.py             обёртка над data/schedule_all.json
-handlers_admin.py           /admin: статистика, рассылка, статус, PDF-обновление
-notify.py / changes.py      уведомления об изменениях расписания
-data/schedule_all.json      все курсы (артефакт parse_all.py)
-data/users_all.json         юзеры общего бота (выбор группы, дайджест)
-data/pending_changes.json   очередь изменений (создаётся парсером,
-                            рассылается и удаляется ботом)
-scripts/parse_pdf.py        БИБЛИОТЕКА разбора занятия (исп. parse_all.py);
-                            standalone-режим устарел
-scripts/parse_all.py        парсер 4 PDF -> все курсы/группы
-webapp/                     Mini App (vanilla HTML/CSS/JS, liquid glass)
-tests/                      40 unittest
-PLAN.md                     этот файл; CHAT_EXPORT.md — экспорт чата (локально, не в git)
-ANALYSIS.md                 анализ вариантов парсинга (гэп-эвристика)
+bot_all.py                   точка входа; setMyCommands, setChatMenuButton,
+                             логирование (RotatingFileHandler bot_all.log),
+                             глобальный dp.errors -> лог + сообщение юзеру
+handlers_all.py              команды, inline-меню, навигация ‹ ›, /settings,
+                             выбор курса/группы; guard'ы callback.message=None
+                             и устаревшей группы (get_valid_ctx)
+handlers_admin.py            /admin: статистика, рассылка, статус, PDF-обновление
+                             (мультифайлы, санитизация имён, запуск по кнопке)
+formatter.py                 рендер с фильтрацией по датам, дайджест
+search.py                    /find: поиск по предмету/преподавателю
+scheduler.py                 asyncio-планировщик утреннего дайджеста (тик 30 c)
+notify.py                    рассылка уведомлений об изменениях (общий бот)
+changes.py                   дифф старый/новый schedule_all.json + очередь
+storage.py                   выбор групп + дайджест (data/users_all.json),
+                             атомарная JSON-запись
+schedule_all.py              обёртка над data/schedule_all.json
+data/schedule_all.json       все курсы (артефакт parse_all.py)
+data/users_all.json          юзеры общего бота (выбор группы, дайджест)
+data/pending_changes.json    очередь изменений (создаётся парсером,
+                             рассылается и удаляется ботом)
+scripts/parse_pdf.py         БИБЛИОТЕКА разбора занятия (исп. parse_all.py):
+                             SEMESTER_*/PAIR_NUMBERS — единый источник;
+                             standalone-режим устарел
+scripts/parse_all.py         парсер 4 PDF -> все курсы/группы
+webapp/                      Mini App (vanilla HTML/CSS/JS, liquid glass)
+tests/                       unittest (61)
+PLAN.md                      этот файл; CHAT_EXPORT.md — экспорт чата (локально, не в git)
+ANALYSIS.md                  анализ вариантов парсинга (гэп-эвристика)
 ```
 
 ## 4. Формат данных
@@ -149,17 +155,19 @@ PDF — Excel-выгрузка: сетка |Дни|Часы|группа×(Ди�
 **Важно: старый `data/schedule.json` и старые артефакты НЕ эталон.** Эталон —
 только PDF. При изменении PDF верстки править `GROUP_COLUMN`/`indent`-логику.
 
-## 6. Функции ботов
+## 6. Функции бота
 
-- Оба: `/start`, `/today`, `/tomorrow`, `/week`, `/date DD.MM`,
-  `/monday`–`/saturday`, `/help`, навигация ‹ › (callback по абсолютной дате
-  `daynav:YYYY-MM-DD` / `weeknav:…`, safe_edit против «message is not modified»),
-  меню команд через setMyCommands при старте.
-- Общий: `/start` → курс → группа (persist в users_all.json), `/groups`.
-- Личный: `/settings` (дайджест вкл/выкл, время HH:МСК, пресеты + FSM-ввод),
+- `/start`, `/today`, `/tomorrow`, `/week`, `/date DD.MM` (год — от текущего
+  учебного года), `/monday`–`/saturday`, `/help`, `/find`, `/webapp`,
+  навигация ‹ › (callback по абсолютной дате `daynav:YYYY-MM-DD` /
+  `weeknav:…`, safe_edit против «message is not modified»), меню команд
+  через setMyCommands при старте, глобальный dp.errors.
+- `/start` → курс → группа (persist в users_all.json), `/groups`.
+- `/settings` (дайджест вкл/выкл, время HH:МСК, пресеты + FSM-ввод),
   утренний дайджест (scheduler.py, тик 30 c, анти-дубль по last_sent,
-  догон при рестарте, молчание в пустые дни, Forbidden → отписка).
-- Уведомления об изменениях (общий): parse_all при записи JSON строит дифф
+  догон при рестарте, молчание в пустые дни, Forbidden → отписка,
+  RetryAfter → отложить на следующий тик).
+- Уведомления об изменениях: parse_all при записи JSON строит дифф
   (changes.py) → `data/pending_changes.json`; bot_all при старте рассылает
   каждому пользователю изменения его группы (формат: «ПН 14:05: − … / + …»),
   удаляет очередь. История: 02.09 разосланы изменения по 16 группам
@@ -231,11 +239,12 @@ QUIC-хендшейков. Решение: systemd-юнит `hysteria-porthop.se
 1. Скачать новые `{N}curs{год}.pdf` в папку.
 2. `.venv/bin/python scripts/parse_all.py /путь/к/папке` — сверить сводку
    (число занятий по группам, метод B, sanity).
-3. Поправить в parse_all.py/parse_pdf.py: SEMESTER_START/SEMESTER_END,
-   при новой верстке — PAIR_NUMBERS/EXPECTED_SLOTS/границы.
+3. Поправить в parse_pdf.py (единый источник для обоих скриптов):
+   SEMESTER_START/SEMESTER_END, при новой верстке — PAIR_NUMBERS/
+   EXPECTED_SLOTS/границы.
 4. Прогнать тесты; закоммитить JSON; push.
-5. На VPS: `git pull` в обоих клонах (protocol.version=0), restart обоих
-   сервисов. Уведомления об изменениях уйдут сами.
+5. На VPS: `git pull` в клоне (protocol.version=0), restart сервиса.
+   Уведомления об изменениях уйдут сами.
 6. Заполнить data/pending_changes.json вручную, если обновление делалось
    мимо git.
 
@@ -247,13 +256,15 @@ QUIC-хендшейков. Решение: systemd-юнит `hysteria-porthop.se
   (файл остался только локально, токен в нём замаскирован). История git
   старые коммиты хранит — если когда-нибудь понадобится, вычистить через
   git filter-repo.
+  **11.09.2026 — подтверждено повторно:** ревокация и чистка истории
+  не проводились (осознанное решение).
 - Токены хранятся ТОЛЬКО в `.env` на сервере (600), `.env` в .gitignore.
 - ADMIN_IDS захардкожен fallback в config.py + переопределяется через .env.
 
 ## 11. Куда смотреть новому ассистенту
 
 - Прочитать этот файл, затем `README.md`, затем код: parse_all.py →
-  parse_pdf.py (ядро разбора) → handlers_all.py → formatter_all.py.
+  parse_pdf.py (ядро разбора) → handlers_all.py → formatter.py.
 - Сверить понимание с `data/schedule_all.json` (реальные данные).
 - Если нужно полное погружение в историю решений и дебага — `CHAT_EXPORT.md`.
 - Тесты — источник истины по ожидаемому поведению: `tests/`.
