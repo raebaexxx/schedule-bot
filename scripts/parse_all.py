@@ -25,10 +25,11 @@
 """
 
 import json
+import os
 import re
-import subprocess
 import sys
-from datetime import date, datetime
+import tempfile
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 from pathlib import Path
 
@@ -42,6 +43,7 @@ from parse_pdf import (  # noqa: E402
     INITIALS_RE,
     KIND_COMBINED_RE,
     KIND_SIMPLE_RE,
+    PAIR_NUMBERS,
     SEMESTER_END,
     SEMESTER_START,
     SURNAME_RE,
@@ -53,24 +55,13 @@ from parse_pdf import (  # noqa: E402
     normalize_time,
     parse_lesson,
     parse_words,
+    pdftotext_text,
     rough_day_of,
 )
 
 GROUP_WORD_RE = re.compile(r"^[А-ЯЁ]{2,3}$")
 GROUP_TAIL_RE = re.compile(r"^(-|\d{3}|\(\s*[уУ]\s*\)|[уУ]\))$")
 pa_VIRT_RE = re.compile(r"^(вирт[.]?|ауд[.]?|\d+)$")
-PAIR_NUMBERS = {
-    "08.30-10.05": 1,
-    "10.15-11.50": 2,
-    "12.00-13.35": 3,
-    "12.20-13.55": 3,
-    "13.45-15.20": 4,
-    "14.05-15.40": 4,
-    "15.30-17.05": 5,
-    "15.50-17.25": 5,
-    "17.35-19.10": 6,
-    "19.20-20.55": 7,
-}
 
 
 PAIR_LOOKUP = {normalize_time(k): v for k, v in PAIR_NUMBERS.items()}
@@ -89,10 +80,7 @@ def time_key(label: str) -> tuple[int, int]:
 # ---------------------------------------------------------------- структура PDF
 
 def load_visual_lines(pdf_path: Path) -> list[dict]:
-    xml = subprocess.run(
-        ["pdftotext", "-bbox-layout", str(pdf_path), "-"],
-        check=True, capture_output=True, text=True,
-    ).stdout
+    xml = pdftotext_text(pdf_path, "-bbox-layout")
     words = parse_words(xml)
     return [l for l in cluster_visual_lines(words) if l["y"] > 50]
 
@@ -114,12 +102,19 @@ def detect_columns(lines: list[dict], page_width: float) -> dict:
     if len(aud_words) != len(disc_words):
         warn_local(f"Ауд. ({len(aud_words)}) != Дисциплины ({len(disc_words)})")
 
+    def aud_x1(idx: int) -> float | None:
+        """x1 подзаголовка «Ауд.» колонки idx; None — подзаголовка нет."""
+        if 0 <= idx < len(aud_words):
+            return aud_words[idx]["x1"]
+        return None
+
     content_words = [w for ln in lines for w in ln["words"] if w["y0"] > sub_y + 2]
 
     # indent_i (индивидуальный): disc_i.x0 - левый край контента колонки i
     indents = []
     for i, d in enumerate(disc_words):
-        left_lim = aud_words[i - 1]["x1"] if i > 0 else 0.0
+        left = aud_x1(i - 1) if i > 0 else None
+        left_lim = left if left is not None else 0.0
         zone = [w for w in content_words if left_lim < w["x0"] < d["x0"]]
         if zone:
             indents.append(d["x0"] - min(w["x0"] for w in zone))
@@ -130,7 +125,8 @@ def detect_columns(lines: list[dict], page_width: float) -> dict:
     def indent_of(i: int) -> float:
         """Индивидуальный отступ колонки; для пустых — медианный."""
         d = disc_words[i]
-        left_lim = aud_words[i - 1]["x1"] if i > 0 else 0.0
+        left = aud_x1(i - 1) if i > 0 else None
+        left_lim = left if left is not None else 0.0
         zone = [w for w in content_words
                 if left_lim < w["x0"] < d["x0"]
                 and w["text"] not in DAY_MARKERS
@@ -176,11 +172,15 @@ def detect_columns(lines: list[dict], page_width: float) -> dict:
         start = d["x0"] - indent_of(i)
         end = (disc_words[i + 1]["x0"] - indent_of(i + 1)) \
             if i + 1 < len(disc_words) else page_width - 5
-        if i > 0:
-            start = max(start, aud_words[i - 1]["x1"] + 0.5)
+        prev_aud = aud_x1(i - 1) if i > 0 else None
+        if prev_aud is not None:
+            start = max(start, prev_aud + 0.5)
         bounds.append({"left": start, "right": end})
-        # учительская зона: между «Дисциплины» и «Ауд.»
-        teacher_zones.append([d["x0"] - 12, aud_words[i]["x1"] + 5])
+        # учительская зона: между «Дисциплины» и «Ауд.»; без «Ауд.» —
+        # до правой границы колонки
+        cur_aud = aud_x1(i)
+        zone_end = cur_aud + 5 if cur_aud is not None else bounds[-1]["right"] - 5
+        teacher_zones.append([d["x0"] - 12, zone_end])
     has_teacher_zone = any(
         w["text"] == "Преподаватели" and abs(w["y0"] - sub_y) < 3
         for ln in lines for w in ln["words"])
@@ -259,10 +259,17 @@ def assign_anchors_to_days(
         while len(anchors) >= 2 and \
                 time_key(anchors[-1]["time"]) < time_key(anchors[-2]["time"]):
             moved.insert(0, anchors.pop())
-        if moved and i + 1 < len(DAY_ORDER):
-            rows[DAY_ORDER[i + 1]] = moved + rows[DAY_ORDER[i + 1]]
-            warn_local(f"якоря {[a['time'] for a in moved]} перенесены: "
-                       f"{day} -> {DAY_ORDER[i + 1]}")
+        if moved:
+            if i + 1 < len(DAY_ORDER):
+                rows[DAY_ORDER[i + 1]] = moved + rows[DAY_ORDER[i + 1]]
+                warn_local(f"якоря {[a['time'] for a in moved]} перенесены: "
+                           f"{day} -> {DAY_ORDER[i + 1]}")
+            else:
+                # последний день (суббота): перенести некуда — оставляем,
+                # иначе слоты субботы молча теряются
+                anchors = moved + anchors
+                warn_local(f"{day}: хвостовые якоря не монотонны, оставлены: "
+                           f"{[a['time'] for a in moved]} — сверить с PDF")
         rows[day] = anchors
 
     for day in DAY_ORDER:
@@ -281,10 +288,7 @@ def parse_course_pdf(pdf_path: Path) -> tuple[str, dict[str, dict]]:
 
     расписание = {day: {"name": ..., "slots": [{time, pair, lessons: [...]}]}}
     """
-    layout = subprocess.run(
-        ["pdftotext", "-layout", str(pdf_path), "-"],
-        check=True, capture_output=True, text=True,
-    ).stdout
+    layout = pdftotext_text(pdf_path, "-layout")
     semester_title = ""
     ms = re.search(r"(\d+ семестр \d{4}/\d{4})", layout)
     if ms:
@@ -551,8 +555,14 @@ def parse_course_pdf(pdf_path: Path) -> tuple[str, dict[str, dict]]:
             subj2 = re.sub(
                 r"\s+[А-ЯЁ][а-яё]+\s+[А-ЯЁ]\.[А-ЯЁ]\.?\s*$", "", subj2)
             subj2 = re.sub(r"\s+[А-ЯЁ]{2,}\s+[А-ЯЁ]\.[А-ЯЁ]\.?\s*$", "", subj2)
-            # 3) одиночные цифры 3/5 (номера вирт-аудиторий), но не «4.0»
-            subj2 = re.sub(r"(?<![\w.])[35](?![\w.])", "", subj2)
+            # 3) одиночные цифры 3/5 (номера вирт-аудиторий) — только по краям
+            #    subject: утечка приходит с края соседней колонки; в середине
+            #    цифры не трогаем («Часть 3», «Модуль 5»)
+            if re.fullmatch(r"\s*[35]\s*", subj2):
+                subj2 = ""
+            else:
+                subj2 = re.sub(r"^\s*(?<![\w.])[35](?![\w.])\s+", "", subj2)
+                subj2 = re.sub(r"\s+(?<![\w.])[35](?![\w.])\s*$", "", subj2)
             # 4) повторы одиночных слов («материального производства» дубль
             #    не трогаем — безопаснее оставить)
             subj2 = re.sub(r"\s+", " ", subj2).strip(" ,")
@@ -606,9 +616,17 @@ def layout_group_slices(layout: str, group_ids: list[str]) -> dict[str, str]:
     строка шапки) — они выровнены с контентом колонок.
     """
     lines = layout.splitlines()
-    header_idx = next(i for i, ln in enumerate(lines) if "Дни" in ln and "Часы" in ln)
-    sub_idx = next(i for i, ln in enumerate(lines[header_idx:], header_idx)
-                   if ln.count("Дисциплины") >= len(group_ids))
+    header_idx = next(
+        (i for i, ln in enumerate(lines) if "Дни" in ln and "Часы" in ln), None)
+    if header_idx is None:
+        raise RuntimeError("в layout-выгрузке не найдена шапка «Дни … Часы»")
+    sub_idx = next(
+        (i for i, ln in enumerate(lines[header_idx:], header_idx)
+         if ln.count("Дисциплины") >= len(group_ids)), None)
+    if sub_idx is None:
+        raise RuntimeError(
+            "в layout-выгрузке не найдена строка «Дисциплины» "
+            f"с {len(group_ids)} колонками")
     sub = lines[sub_idx]
 
     positions = [m.start() for m in re.finditer(r"Дисциплины", sub)]
@@ -668,10 +686,10 @@ def cross_check_course(
 
 
 def sanity_course(groups: dict[str, dict]) -> list[str]:
-    problems = []
-    # в PDF встречаются даты до 30.12 — граница семестра для sanity мягче
-    end_limit = date(2026, 12, 31)
-    problems = []
+    problems: list[str] = []
+    # в PDF встречаются даты чуть дальше конца семестра — граница sanity
+    # мягче на 3 дня (SEMESTER_END=28.12 -> 31.12)
+    end_limit = SEMESTER_END + timedelta(days=3)
     for gid, days in groups.items():
         for day in DAY_ORDER:
             for slot in days[day]["slots"]:
@@ -703,6 +721,11 @@ def main() -> None:
     courses: dict[str, dict] = {}
     for pdf in pdfs:
         m = re.search(r"(\d)curs", pdf.name)
+        if not m:
+            print(f"!! {pdf.name}: в имени нет номера курса "
+                  "(ожидается вида '1curs2026.pdf') — файл пропущен",
+                  file=sys.stderr)
+            continue
         course = m.group(1)
         print(f"\n=== {pdf.name} (курс {course}) ===")
         semester, groups = parse_course_pdf(pdf)
@@ -718,9 +741,7 @@ def main() -> None:
                       for d in g["days"].values() for s in d["slots"])
             print(f"  {g['display']}: {cnt}")
 
-        layout = subprocess.run(
-            ["pdftotext", "-layout", str(pdf), "-"],
-            check=True, capture_output=True, text=True).stdout
+        layout = pdftotext_text(pdf, "-layout")
         print("--- контрольная сверка с layout (метод B) ---")
         problems = cross_check_course(
             {gid: g["days"] for gid, g in groups.items()},
@@ -747,7 +768,7 @@ def main() -> None:
 
     now_msk = datetime.now(ZoneInfo("Europe/Moscow"))
     payload = {
-        "generated": date.today().isoformat(),
+        "generated": now_msk.date().isoformat(),
         "generated_at": now_msk.isoformat(timespec="minutes"),
         "semester_start": SEMESTER_START.isoformat(),
         "semester_end": SEMESTER_END.isoformat(),
@@ -756,13 +777,28 @@ def main() -> None:
     out = ROOT / "data" / "schedule_all.json"
     out.parent.mkdir(exist_ok=True)
 
-    # дифф со старой версией -> очередь уведомлений (changes.py)
+    # дифф со старой версией — читаем ДО перезаписи (changes.py)
     old_json = None
     if out.exists():
         try:
             old_json = json.loads(out.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             old_json = None
+
+    # основной JSON пишем атомарно: бот парсит файл при импорте,
+    # битый JSON = падение бота на старте
+    fd, tmp = tempfile.mkstemp(dir=str(out.parent), suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=1)
+        os.replace(tmp, out)
+    except OSError:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise
+    print(f"\nJSON: {out}")
+
+    # очередь уведомлений — после успешной записи JSON
     if old_json is not None:
         sys.path.insert(0, str(ROOT))
         from changes import compute_changes, save_pending
@@ -774,10 +810,6 @@ def main() -> None:
                   f"-> data/pending_changes.json")
         else:
             print("Изменений нет")
-
-    out.write_text(json.dumps(payload, ensure_ascii=False, indent=1),
-                   encoding="utf-8")
-    print(f"\nJSON: {out}")
 
 
 if __name__ == "__main__":

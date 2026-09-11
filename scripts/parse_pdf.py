@@ -28,9 +28,11 @@ cluster_visual_lines, DAY_*, TIME/SURNAME/INITIALS регексы и т.д.
 """
 
 import json
+import os
 import re
 import subprocess
 import sys
+import tempfile
 import xml.etree.ElementTree as ET
 from datetime import date
 from pathlib import Path
@@ -74,7 +76,8 @@ EXPECTED_SLOTS = {
 SEMESTER_START = date(2026, 9, 1)
 SEMESTER_END = date(2026, 12, 28)
 
-# Номер пары по времени слота (общая сетка звонков)
+# Номер пары по времени слота (общая сетка звонков; единый источник
+# для parse_pdf и parse_all — при смене звонков править только здесь)
 PAIR_NUMBERS = {
     "08.30-10.05": 1,
     "10.15-11.50": 2,
@@ -84,6 +87,8 @@ PAIR_NUMBERS = {
     "14.05-15.40": 4,
     "15.30-17.05": 5,
     "15.50-17.25": 5,
+    "17.35-19.10": 6,
+    "19.20-20.55": 7,
 }
 
 TIME_RE = re.compile(r"^\d{1,2}\.\d{2}-\d{1,2}\.\d{2}$")
@@ -106,16 +111,23 @@ def warn(msg: str) -> None:
 
 # ---------------------------------------------------------------- извлечение
 
+def pdftotext_text(pdf_path: Path, mode: str = "-layout") -> str:
+    """stdout pdftotext; понятная ошибка, если утилита не установлена."""
+    try:
+        return subprocess.run(
+            ["pdftotext", mode, str(pdf_path), "-"],
+            check=True, capture_output=True, text=True,
+        ).stdout
+    except FileNotFoundError:
+        raise RuntimeError(
+            "pdftotext не найден — установите poppler-utils "
+            "(sudo apt install -y poppler-utils)") from None
+
+
 def run_pdftotext(pdf_path: Path) -> tuple[str, str]:
     DATA_DIR.mkdir(exist_ok=True)
-    layout = subprocess.run(
-        ["pdftotext", "-layout", str(pdf_path), "-"],
-        check=True, capture_output=True, text=True,
-    ).stdout
-    bbox = subprocess.run(
-        ["pdftotext", "-bbox-layout", str(pdf_path), "-"],
-        check=True, capture_output=True, text=True,
-    ).stdout
+    layout = pdftotext_text(pdf_path, "-layout")
+    bbox = pdftotext_text(pdf_path, "-bbox-layout")
     (DATA_DIR / "layout.txt").write_text(layout, encoding="utf-8")
     (DATA_DIR / "bbox.xml").write_text(bbox, encoding="utf-8")
     return layout, bbox
@@ -370,7 +382,12 @@ def normalize_time(t: str) -> str:
 
 
 def infer_year(month: int) -> int:
-    return 2026 if month >= 7 else 2027
+    """Год даты в PDF: сен–дек — год начала семестра, янв–июн — следующий.
+
+    Производится от SEMESTER_START — при смене семестра править только
+    SEMESTER_START/SEMESTER_END выше.
+    """
+    return SEMESTER_START.year if month >= 7 else SEMESTER_START.year + 1
 
 
 def _mkdate(ddmm: str) -> date | None:
@@ -624,10 +641,16 @@ def extract_slot_lessons(slot_blocks: list[dict]) -> list[dict]:
 def collect(slots: dict) -> dict:
     schedule = {}
     for day in DAY_ORDER:
-        day_slots = [{"time": normalize_time(t),
-                      "pair": PAIR_NUMBERS.get(t, 0),
-                      "lessons": extract_slot_lessons(b)}
-                     for t, b in slots[day].items()]
+        day_slots = []
+        for t, b in slots[day].items():
+            lessons = extract_slot_lessons(b)
+            # служебные поля парсера не должны утекать в JSON
+            for l in lessons:
+                l.pop("_consumed", None)
+                l.pop("_teacher_span", None)
+            day_slots.append({"time": normalize_time(t),
+                              "pair": PAIR_NUMBERS.get(t, 0),
+                              "lessons": lessons})
         schedule[day] = {"name": DAY_NAMES_RU[day], "slots": day_slots}
     return schedule
 
@@ -641,8 +664,11 @@ def layout_ba_column(layout_text: str) -> str:
     позициями заголовков групп в строке шапки.
     """
     lines = layout_text.splitlines()
-    header_idx = next(i for i, ln in enumerate(lines)
-                      if "БА" in ln and "БК" in ln and "БТ" in ln and "БЭ" in ln)
+    header_idx = next((i for i, ln in enumerate(lines)
+                       if "БА" in ln and "БК" in ln and "БТ" in ln and "БЭ" in ln),
+                      None)
+    if header_idx is None:
+        raise RuntimeError("в layout-выгрузке не найдена строка заголовков групп")
     header = lines[header_idx]
     idxs = [header.index(g) for g in ("БА", "БК", "БТ", "БЭ")]
     left = idxs[0] - (idxs[1] - idxs[0]) // 2   # левее начала контента БА
@@ -757,13 +783,23 @@ def main() -> None:
         "schedule": schedule,
     }
     out_json = DATA_DIR / "schedule.json"
-    out_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    # атомарная запись: обрыв процесса не должен оставлять битый JSON
+    fd, tmp = tempfile.mkstemp(dir=str(DATA_DIR), suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, out_json)
+    except OSError:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise
     print(f"\nJSON: {out_json}")
 
+    safe_name = pdf_path.name.replace('"""', r'\"\"\"')
     gen = ROOT / "schedule_data.py"
     gen.write_text(
         '"""\nСГЕНЕРИРОВАНО scripts/parse_pdf.py — руками не править.\n'
-        f'Источник: {pdf_path.name}\n"""\n\n'
+        f'Источник: {safe_name}\n"""\n\n'
         "import json\nfrom pathlib import Path\n\n"
         "_data = json.loads((Path(__file__).parent / 'data' / 'schedule.json')"
         ".read_text(encoding='utf-8'))\n\n"
