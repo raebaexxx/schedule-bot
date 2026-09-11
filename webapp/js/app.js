@@ -37,6 +37,32 @@
     }
   }
 
+  /* ---------- живой блик под курсором ---------- */
+  /* только точный указатель (десктоп); на мобильном блик статичный,
+     prefers-reduced-motion отключает движение */
+
+  (function () {
+    var ok = window.matchMedia &&
+      window.matchMedia(
+        "(pointer: fine) and (prefers-reduced-motion: no-preference)").matches;
+    if (!ok) return;
+    var raf = null;
+    window.addEventListener("pointermove", function (e) {
+      if (raf !== null) return;
+      raf = requestAnimationFrame(function () {
+        raf = null;
+        document.querySelectorAll(".glass").forEach(function (g) {
+          var r = g.getBoundingClientRect();
+          if (!r.width || !r.height) return;
+          var x = Math.round(100 * (e.clientX - r.left) / r.width);
+          var y = Math.round(100 * (e.clientY - r.top) / r.height);
+          g.style.setProperty("--hx", x + "%");
+          g.style.setProperty("--hy", y + "%");
+        });
+      });
+    }, { passive: true });
+  })();
+
   /* ---------- время МСК ---------- */
 
   var DAY_KEYS = ["sunday", "monday", "tuesday", "wednesday", "thursday",
