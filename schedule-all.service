@@ -2,13 +2,17 @@
 Description=Общий бот расписания ЕТИ (все курсы и группы)
 After=network-online.target
 Wants=network-online.target
+# защита от крашлупа: не более 10 рестартов за 5 минут
+StartLimitIntervalSec=300
+StartLimitBurst=10
 
 [Service]
 Type=simple
 User=deployall
 WorkingDirectory=/opt/schedule-all
 ExecStart=/opt/schedule-all/.venv/bin/python bot_all.py
-Restart=on-failure
+# always, а не on-failure: чистый exit(0) не должен оставлять бота мёртвым
+Restart=always
 RestartSec=5
 
 [Install]
