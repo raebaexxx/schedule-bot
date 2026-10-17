@@ -85,36 +85,31 @@ journalctl -u schedule-all -f
 Сервис перезапускает бота при падении (Restart=always с защитой от
 крашлупа) и стартует при загрузке.
 
-## Веб-версия без Telegram (GitHub Pages)
+## Сайт и Mini App (GitHub Pages)
 
 Расписание доступно как обычный сайт: **https://raebaexxx.github.io/schedule-bot/**
 
-Это зеркало Mini App: тот же webapp + `data/schedule_all.json`, деплоится
-автоматически workflow `pages.yml` при каждом пуше в main. Обновишь JSON —
-пушишь, сайт обновляется. Работает из РФ без VPN.
+Этот же URL используется как **Mini App** в Telegram (`WEBAPP_URL` в `.env`) —
+отдельный веб-сервер и домен не нужны. Деплоится автоматически workflow
+`pages.yml` при каждом пуше в main (webapp + `data/schedule_all.json`).
+Обновишь JSON — пушишь, сайт обновляется. Работает из РФ без VPN.
 
 ## Mini App (веб-приложение)
 
 Статика в `webapp/` (vanilla HTML/CSS/JS, без сборки): liquid glass на
 `backdrop-filter` + SVG-рефракция для Chromium (Telegram Android), frost-фоллбэк
-для iOS WebView. Данные — `data/schedule_all.json`, отдаются nginx'ом.
+для iOS WebView. Данные — `data/schedule_all.json`.
 
-Развёртывание (пример для домена `app.example.com`):
+Mini App отдаётся с GitHub Pages (см. раздел выше): в `.env` достаточно указать
+`WEBAPP_URL=https://raebaexxx.github.io/schedule-bot/` и перезапустить сервис —
+бот сам выставит кнопку меню (`set_chat_menu_button`).
 
-1. DNS: A-запись `app` → IP сервера.
-2. `sudo apt install -y nginx certbot python3-certbot-nginx`; **порядок
-   важен**: если включаете ufw — сначала `ufw allow 22/tcp` (SSH!), затем
-   `ufw allow 80,443/tcp` и только потом `ufw enable`. Если на сервере уже
-   есть другие сервисы (например 3x-ui/xray) — проверьте их порты
-   (`ss -tlnp`) и откройте их до включения firewall.
-3. nginx-сайт: root → `/opt/schedule-all/webapp`, `/data/` → алиас на
-   `/opt/schedule-all/data/` (`schedule_all.json` —
-   Cache-Control: no-store).
-4. `sudo certbot --nginx -d app.example.com`.
-5. В `.env`: `WEBAPP_URL=https://app.example.com[:порт][/all/]`,
-   restart — бот сам выставит кнопку меню (`set_chat_menu_button`).
-6. (опционально) @BotFather → Bot Settings → Configure Mini App → включить
-   Main Mini App с тем же URL.
+1. (опционально) @BotFather → Bot Settings → Configure Mini App — если задан
+   Main Mini App, указать тот же URL.
+
+Раньше Mini App хостился на VPS (nginx + certbot на своём домене, порт 8445) —
+от этого варианта отказались в пользу Pages: проще и не конфликтует с VPN
+(3x-ui/xray) на сервере. Историческая инструкция — в git-истории.
 
 ## Структура
 

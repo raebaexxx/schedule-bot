@@ -24,29 +24,30 @@
 
 ## 2. Текущее состояние (деплой)
 
-**VPS:** 144.31.207.159, Ubuntu 24.04, доступ `ssh root@…` по ключу
-(ключ `~/.ssh/id_ed25519` на локальной машине, добавлен через ssh-copy-id).
-Хостер Play2Go, домен **raebae.fun** (DNS обслуживает Джино — NS ns1-4.jino.ru;
-эксперимент с Cloudflare-прокси отменён: 443 занят xray-VPN, CF-прокси недоступен
-из РФ-сетей).
+**VPS:** 177.3.223.72, Ubuntu 24.04, доступ `ssh root@…` по ключу
+(ключ `~/.ssh/id_ed25519` на локальной машине). Хостер Play2Go.
+На сервере также живёт VPN-стек пользователя (3x-ui/xray на 443, nginx только
+на localhost, tguserbot, xui-sub-bot, subfilter) — **НЕ трогать**: бот не
+слушает входящие порты и с VPN не конфликтует.
+
+Переезд со старого VPS 144.31.207.159 выполнен 17.10.2026: старый бот
+остановлен и `systemctl disable`, `data/users_all.json` перенесён. Mini App
+с домена `app.raebae.fun` больше не используется (домен на парковке Джино);
+nginx/certbot для webapp на сервере не нужны.
 
 | Компонент | Путь | Сервис | Порт |
 |---|---|---|---|
-| Личный бот | `/opt/schedule-bot` (клон, user `deploy`) | `schedule-bot.service` | — |
 | Общий бот | `/opt/schedule-all` (клон, user `deployall`) | `schedule-all.service` | — |
-| nginx + TLS | сайт `schedule-app` | Let's Encrypt до 29.11.2026 (автопродление) | 80/8445 |
-| Mini App личный | `https://app.raebae.fun:8445/` | nginx root → webapp личного клона | |
-| Mini App общий | `https://app.raebae.fun:8445/all/` | nginx → `/opt/schedule-bot/webapp/all/` (копия webapp общего клона) | |
-| Зеркало сайта (без TG) | `https://raebaexxx.github.io/schedule-bot/` | GitHub Pages, workflow `pages.yml` (webapp + JSON при пуше) | |
+| Mini App + сайт (без TG) | `https://raebaexxx.github.io/schedule-bot/` | GitHub Pages, workflow `pages.yml` | — |
 
-⚠️ **Порт 8445**, а не 443: 443 занят xray (3x-ui VPN пользователя — НЕ трогать!).
+⚠️ **Mini App = GitHub Pages**: `WEBAPP_URL=https://raebaexxx.github.io/schedule-bot/`
+в `.env`; кнопку меню бот выставляет сам при старте.
 Вирт-цифры и подписи «Начальник УМО/ОРО» в PDF переползают между колонками.
 
-⚠️ **Сеть VPS**: git-протокол **v2** сломан (GitHub отдаёт 401 на git-fetch),
-вылечено `git config --global protocol.version 0` (для root/deploy/deployall).
-**ufw**: правила — 22/80/443 TCP, 2096, 8443, 8444, 33489 TCP (x-ui), 443,
-35928, 43182, 50822 UDP (xray), 8445 TCP. Порядок при включении ufw: сначала
-разрешить SSH!
+⚠️ **Сеть старого VPS** (историческая справка): git-протокол v2 был сломан
+(лечилось `protocol.version 0`), ufw — с правилами под x-ui. На новом сервере
+git v2 работает штатно, ufw неактивен — включать только с проверкой правил
+(SSH/x-ui); боту firewall не нужен (входящих портов нет).
 
 **Токены** только в `.env` на сервере (600, в gitignore). ⚠️ Токен общего
 бота засвечивался в чате — желательно перевыпустить через @BotFather (/revoke)
@@ -194,9 +195,13 @@ PDF — Excel-выгрузка: сетка |Дни|Часы|группа×(Ди�
 7. **02.09**: меню команд (setMyCommands), /saturday в личном боте, README
    переписан, этот экспорт.
 
-## 7.1. VPN-сертификаты (x-ui/xray на 443) — НЕ часть бота, но важно
+## 7.1. VPN-сертификаты — НЕ часть бота (историческая справка по старому VPS)
 
-На 443 работает xray (VPN: vless+tls, hysteria — 3x-ui панель). Сертификат —
+На новом сервере 177.3.223.72 VPN-стек самостоятельный: x-ui/xray, серты
+`blog/panel/sub.raebae.fun` через acme.sh — к боту отношения не имеет, не трогать.
+Ниже — история старого VPS 144.31.207.159 (выведен из эксплуатации 17.10.2026).
+
+На 443 работал xray (VPN: vless+tls, hysteria — 3x-ui панель). Сертификат —
 Let's Encrypt для **IP 144.31.207.159** (shortlived profile, 7 дней!) через
 acme.sh (`/root/.acme.sh/`, крон 10:53 ежедневно).
 
@@ -230,7 +235,8 @@ QUIC-хендшейков. Решение: systemd-юнит `hysteria-porthop.se
   через navigator.userAgentData.
 - Excel-PDF: текст ячеек overflow за границы колонок (ФИО, вирт-цифры) —
   парсинг через x-зоны, а не по строкам текста.
-- git на VPS: protocol.version=0 обязателен; safe.directory для root.
+- git: на старом VPS protocol.version=0 был обязателен; на новом (177.3.223.72)
+  v2 работает штатно, но safe.directory для root при pull'ах нужен.
 - В PDF-данных вуза баг: инициалы преподавателей не соответствуют фамилиям
   (ЗАМЛЕЛАЯ А.Т., ПОДШИВАЛОВА М.В.) — не пытаться «чинить».
 
@@ -243,7 +249,8 @@ QUIC-хендшейков. Решение: systemd-юнит `hysteria-porthop.se
    SEMESTER_START/SEMESTER_END, при новой верстке — PAIR_NUMBERS/
    EXPECTED_SLOTS/границы.
 4. Прогнать тесты; закоммитить JSON; push.
-5. На VPS: `git pull` в клоне (protocol.version=0), restart сервиса.
+5. На VPS (177.3.223.72): `git pull` в `/opt/schedule-all`, `systemctl restart
+   schedule-all`. GitHub Pages (сайт/Mini App) передеплоится сам workflow'ом.
    Уведомления об изменениях уйдут сами.
 6. Заполнить data/pending_changes.json вручную, если обновление делалось
    мимо git.
